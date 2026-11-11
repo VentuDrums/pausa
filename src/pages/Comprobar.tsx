@@ -72,9 +72,16 @@ export function Comprobar() {
             {informe.intentos.map((x, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-papel px-3 py-2">
                 <span className="font-bold">Intento {i + 1}</span>
-                <span>
-                  {x.aciertos} de {x.total} · nota <strong>{notaDe(x.aciertos, x.total).toLocaleString('es-ES')}</strong>
-                </span>
+                {x.respondidas === undefined ? (
+                  <span>
+                    {x.aciertos} de {x.total} · nota <strong>{notaDe(x.aciertos, x.total).toLocaleString('es-ES')}</strong>
+                  </span>
+                ) : (
+                  <span className="text-rojo">
+                    <strong>Sin terminar</strong>: {x.respondidas} de {x.total} respondidas, {x.aciertos}{' '}
+                    {x.aciertos === 1 ? 'acierto' : 'aciertos'}
+                  </span>
+                )}
                 <span className="text-sm text-tinta-suave">{fechaCorta(x.fecha)}</span>
               </li>
             ))}

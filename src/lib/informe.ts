@@ -1,7 +1,7 @@
 import type { jsPDF as JsPDF } from 'jspdf'
 import type { Actividad } from '../types'
 import { formatoTiempo } from './tiempo'
-import { fechaCorta, notaDe, type Intento } from './intentos'
+import { estaTerminado, fechaCorta, notaDe, type Intento } from './intentos'
 
 export type Resultado = {
   nombre: string
@@ -17,8 +17,10 @@ export type Resultado = {
 
 /** "Intento 1: 4 de 10 (nota 4) – lun, 10 nov, 10:02" */
 export function lineasIntentos(intentos: Intento[]): string[] {
-  return intentos.map(
-    (x, i) => `Intento ${i + 1}: ${x.aciertos} de ${x.total} (nota ${notaDe(x.aciertos, x.total).toLocaleString('es-ES')}) - ${fechaCorta(x.fecha)}`,
+  return intentos.map((x, i) =>
+    estaTerminado(x)
+      ? `Intento ${i + 1}: ${x.aciertos} de ${x.total} (nota ${notaDe(x.aciertos, x.total).toLocaleString('es-ES')}) - ${fechaCorta(x.fecha)}`
+      : `Intento ${i + 1}: sin terminar (${Object.keys(x.respuestas).length} de ${x.total} respondidas, ${x.aciertos} ${x.aciertos === 1 ? 'acierto' : 'aciertos'}) - ${fechaCorta(x.fecha)}`,
   )
 }
 

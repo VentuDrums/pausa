@@ -13,6 +13,47 @@ export type Intento = {
   grupo: string
   /** id de pregunta -> índice de la opción elegida */
   respuestas: Record<string, number>
+  /** false si el alumno lo dejó a medias y empezó de nuevo (los antiguos, sin este campo, están terminados). */
+  terminado?: boolean
+}
+
+export const estaTerminado = (x: Intento) => x.terminado !== false
+
+/** Intento que el alumno está haciendo ahora: se guarda sobre la marcha para poder retomarlo si recarga. */
+export type EnCurso = {
+  inicio: string
+  nombre: string
+  grupo: string
+  respuestas: Record<string, number>
+  /** Segundo del vídeo por el que iba. */
+  tiempo: number
+}
+
+const claveEnCurso = (id: string) => `pausa-encurso-v1:${id}`
+
+export function leerEnCurso(id: string): EnCurso | null {
+  try {
+    const d = JSON.parse(localStorage.getItem(claveEnCurso(id)) ?? 'null')
+    return d && typeof d.nombre === 'string' && d.respuestas ? d : null
+  } catch {
+    return null
+  }
+}
+
+export function guardarEnCurso(id: string, enCurso: EnCurso) {
+  try {
+    localStorage.setItem(claveEnCurso(id), JSON.stringify(enCurso))
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
+export function borrarEnCurso(id: string) {
+  try {
+    localStorage.removeItem(claveEnCurso(id))
+  } catch {
+    /* sin almacenamiento */
+  }
 }
 
 /** Huella corta (FNV-1a de 32 bits, en base 36). Sirve para identificar y para detectar cambios, no es cifrado. */
@@ -58,7 +99,8 @@ export function guardarIntento(id: string, intento: Intento): Intento[] {
  * Si alguien cambia la nota a mano en el PDF o en el correo, el código sigue diciendo la verdad;
  * y si se toca el código, deja de ser válido.
  */
-type DatosCodigo = { v: 1; a: string; t: string; n: string; g: string; i: [number, number, number][] }
+// Cada intento: [minuto, aciertos, total] y, si quedó sin terminar, un cuarto valor con las preguntas respondidas.
+type DatosCodigo = { v: 1; a: string; t: string; n: string; g: string; i: ([number, number, number] | [number, number, number, number])[] }
 
 const SAL = 'pausa·informe'
 
@@ -71,7 +113,10 @@ export function crearCodigo(id: string, titulo: string, intentos: Intento[]): st
     n: ultimo?.nombre ?? '',
     g: ultimo?.grupo ?? '',
     // Minutos enteros (truncados, como la hora que muestra el informe).
-    i: intentos.map((x) => [Math.floor(new Date(x.fecha).getTime() / 60000), x.aciertos, x.total]),
+    i: intentos.map((x) => {
+      const minuto = Math.floor(new Date(x.fecha).getTime() / 60000)
+      return estaTerminado(x) ? [minuto, x.aciertos, x.total] : [minuto, x.aciertos, x.total, Object.keys(x.respuestas).length]
+    }),
   }
   const cuerpo = compressToEncodedURIComponent(JSON.stringify(datos))
   return `${cuerpo}.${huella(SAL + cuerpo)}`
@@ -82,7 +127,8 @@ export type InformeComprobado = {
   titulo: string
   nombre: string
   grupo: string
-  intentos: { fecha: Date; aciertos: number; total: number }[]
+  /** `respondidas` solo existe si el intento quedó sin terminar. */
+  intentos: { fecha: Date; aciertos: number; total: number; respondidas?: number }[]
 }
 
 /** Devuelve lo que dice el código, o null si no es un código de Pausa o se ha modificado. */
@@ -100,7 +146,12 @@ export function leerCodigo(codigo: string): InformeComprobado | null {
       titulo: d.t,
       nombre: d.n,
       grupo: d.g,
-      intentos: d.i.map(([minutos, aciertos, total]) => ({ fecha: new Date(minutos * 60000), aciertos, total })),
+      intentos: d.i.map(([minutos, aciertos, total, respondidas]) => ({
+        fecha: new Date(minutos * 60000),
+        aciertos,
+        total,
+        ...(respondidas !== undefined ? { respondidas } : {}),
+      })),
     }
   } catch {
     return null

@@ -5,7 +5,10 @@ import { LineaTiempo } from '../components/LineaTiempo'
 import { fuenteDeActividad, leerActividad } from '../lib/compartir'
 import { ESTADO_YT, type ReproductorYT } from '../lib/youtube'
 import { calcularNota, descargarPdf, enlaceCorreo, lineasIntentos, type Resultado } from '../lib/informe'
-import { crearCodigo, fechaCorta, guardarIntento, idActividad, leerIntentos, type Intento } from '../lib/intentos'
+import {
+  borrarEnCurso, crearCodigo, estaTerminado, fechaCorta, guardarEnCurso, guardarIntento, idActividad, leerEnCurso, leerIntentos,
+  type Intento,
+} from '../lib/intentos'
 import type { Actividad, Pregunta } from '../types'
 
 export function Ver({ codigo }: { codigo: string }) {
@@ -21,20 +24,26 @@ export function Ver({ codigo }: { codigo: string }) {
       </div>
     )
   }
-  return <VerActividad actividad={actividad} id={idActividad(codigo)} />
+  // `key`: si se abre el enlace de otra actividad en la misma pestaña, se empieza de cero (no se arrastra el estado).
+  const id = idActividad(codigo)
+  return <VerActividad key={id} actividad={actividad} id={id} />
 }
 
-type Fase = 'datos' | 'viendo' | 'informe'
+type Fase = 'datos' | 'reanudar' | 'viendo' | 'informe'
 
 function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   // Intentos anteriores en este navegador (solo se guardan aquí, en el dispositivo del alumno).
   const previos = useMemo(() => leerIntentos(id), [id])
   const [intentos, setIntentos] = useState<Intento[]>(previos)
-  const bloqueada = !!actividad.unIntento && previos.length > 0
-  const [fase, setFase] = useState<Fase>('datos')
-  const [nombre, setNombre] = useState('')
-  const [grupo, setGrupo] = useState('')
-  const [respuestas, setRespuestas] = useState<Record<string, number>>({})
+  const terminados = previos.filter(estaTerminado)
+  const bloqueada = !!actividad.unIntento && terminados.length > 0
+  // Intento a medias (el alumno recargó o cerró la página): se retoma donde lo dejó.
+  const [enCurso] = useState(() => leerEnCurso(id))
+  const [fase, setFase] = useState<Fase>(enCurso && !bloqueada ? 'reanudar' : 'datos')
+  const [nombre, setNombre] = useState(enCurso?.nombre ?? '')
+  const [grupo, setGrupo] = useState(enCurso?.grupo ?? '')
+  const [respuestas, setRespuestas] = useState<Record<string, number>>(enCurso?.respuestas ?? {})
+  const [inicio, setInicio] = useState(enCurso?.inicio ?? '')
   const [activa, setActiva] = useState<Pregunta | null>(null)
   const [elegida, setElegida] = useState<number | null>(null)
   const [comprobada, setComprobada] = useState(false)
@@ -67,14 +76,30 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     requestAnimationFrame(() => tarjeta.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
   }, [])
 
+  // Guarda el intento en curso (en este navegador) para poder retomarlo si se recarga la página.
+  const tiempoRef = useRef(enCurso?.tiempo ?? 0)
+  const guardarProgreso = useCallback(() => {
+    if (faseRef.current !== 'viendo') return
+    guardarEnCurso(id, { inicio, nombre: nombre.trim(), grupo: grupo.trim(), respuestas: respuestasRef.current, tiempo: tiempoRef.current })
+  }, [id, inicio, nombre, grupo])
+  useEffect(() => {
+    if (fase === 'viendo') guardarProgreso()
+  }, [fase, respuestas, guardarProgreso])
+
   // Vigila el vídeo: cuando llega (o se adelanta) al momento de una pregunta, lo detiene.
   useEffect(() => {
     if (fase !== 'viendo') return
+    let ultimoGuardado = 0
     const id = setInterval(() => {
       const r = reproductor.current
       if (!r?.getCurrentTime) return
       const ahora = r.getCurrentTime() || 0
       setTiempo(ahora)
+      tiempoRef.current = ahora
+      if (Date.now() - ultimoGuardado > 3000) {
+        ultimoGuardado = Date.now()
+        guardarProgreso()
+      }
       if (activaRef.current) return
       const p = pendiente(ahora + 0.15)
       if (p) {
@@ -87,7 +112,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
       }
     }, 200)
     return () => clearInterval(id)
-  }, [fase, pendiente, abrir])
+  }, [fase, pendiente, abrir, guardarProgreso])
 
   function alCambiarEstado(estado: number) {
     const r = reproductor.current
@@ -102,8 +127,41 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   function empezar(e: React.FormEvent) {
     e.preventDefault()
     if (!nombre.trim()) return
+    setInicio(new Date().toISOString())
+    tiempoRef.current = 0
     setFase('viendo')
     reproductor.current?.playVideo()
+  }
+
+  /** Retoma el intento a medias: mismas respuestas (ya no se pueden cambiar) y el vídeo donde lo dejó. */
+  function reanudar() {
+    const r = reproductor.current
+    setFase('viendo')
+    if (!r) return
+    r.seekTo(Math.max(0, tiempoRef.current - 2), true)
+    r.playVideo()
+  }
+
+  /** Solo si se puede repetir: el intento a medias queda en el historial como «sin terminar». */
+  function empezarDeNuevo() {
+    if (!enCurso) return
+    const { aciertos, total } = calcularNota({ actividad, respuestas: enCurso.respuestas, nombre: '', grupo: '', intentos: [], codigo: '' })
+    setIntentos(
+      guardarIntento(id, {
+        fecha: enCurso.inicio || new Date().toISOString(),
+        aciertos,
+        total,
+        nombre: enCurso.nombre,
+        grupo: enCurso.grupo,
+        respuestas: enCurso.respuestas,
+        terminado: false,
+      }),
+    )
+    borrarEnCurso(id)
+    setRespuestas({})
+    respuestasRef.current = {}
+    tiempoRef.current = 0
+    setFase('datos')
   }
 
   function comprobar() {
@@ -135,6 +193,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     setIntentos(
       guardarIntento(id, { fecha: new Date().toISOString(), aciertos, total, nombre: nombre.trim(), grupo: grupo.trim(), respuestas }),
     )
+    borrarEnCurso(id)
   }, [fase, id, actividad, respuestas, nombre, grupo])
 
   const resultado: Resultado = {
@@ -150,7 +209,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
 
   // Solo un intento y ya lo hizo: se le enseña su informe de entonces, no el vídeo.
   if (bloqueada) {
-    const primero = previos[0]
+    const primero = terminados[0]
     return (
       <Informe
         resultado={{ ...primero, actividad, intentos: previos, codigo: crearCodigo(id, actividad.titulo, previos) }}
@@ -186,7 +245,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
             }}
             alCambiarEstado={alCambiarEstado}
           />
-          {(fase === 'datos' || activa) && (
+          {(fase === 'datos' || fase === 'reanudar' || activa) && (
             <div className="absolute inset-0 flex items-center justify-center bg-tinta/80 p-4 backdrop-blur-[2px]">
               {activa && (
                 <p className="hidden text-center font-display text-lg font-bold text-papel sm:block">
@@ -196,6 +255,34 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
             </div>
           )}
         </div>
+        {fase === 'reanudar' && enCurso && (
+          <div className="mt-4 flex justify-center sm:absolute sm:inset-0 sm:mt-0 sm:items-center sm:p-4">
+            <div className="aparecer w-full max-w-sm rounded-2xl border-2 border-tinta/10 bg-hoja p-5 sm:border-0 sm:p-6">
+              <p className="font-display text-lg font-bold">Tienes esta actividad a medias</p>
+              <p className="mt-1 text-sm text-tinta-suave">
+                {enCurso.nombre}
+                {enCurso.grupo && ` · ${enCurso.grupo}`} · empezada {fechaCorta(enCurso.inicio)}
+              </p>
+              <p className="mt-2 text-sm">
+                Llevas {Object.keys(enCurso.respuestas).length} de {preguntas.length} preguntas respondidas. Las respuestas que ya diste no se
+                pueden cambiar.
+              </p>
+              <button type="button" className="boton boton-principal mt-5 w-full" disabled={!listo} onClick={reanudar}>
+                {listo ? 'Continuar donde lo dejé' : 'Cargando el vídeo…'}
+              </button>
+              {actividad.unIntento ? (
+                <p className="mt-3 text-xs text-tinta-suave">Solo tienes un intento, así que no puedes empezar de nuevo.</p>
+              ) : (
+                <>
+                  <button type="button" className="boton boton-secundario mt-2 w-full" onClick={empezarDeNuevo}>
+                    Empezar de nuevo
+                  </button>
+                  <p className="mt-2 text-xs text-tinta-suave">Si empiezas de nuevo, este intento aparecerá en tu informe como «sin terminar».</p>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {fase === 'datos' && (
           <div className="mt-4 flex justify-center sm:absolute sm:inset-0 sm:mt-0 sm:items-center sm:p-4">
             <form onSubmit={empezar} className="aparecer w-full max-w-sm rounded-2xl border-2 border-tinta/10 bg-hoja p-5 sm:border-0 sm:p-6">
@@ -206,10 +293,10 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
               {actividad.unIntento ? (
                 <p className="mt-2 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">Solo tienes un intento: cuando termines no podrás repetirla.</p>
               ) : (
-                previos.length > 0 && (
+                intentos.length > 0 && (
                   <p className="mt-2 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">
-                    Ya has hecho esta actividad {previos.length === 1 ? 'una vez' : `${previos.length} veces`} en este dispositivo. Tu informe
-                    incluirá todos los intentos.
+                    Ya has empezado esta actividad {intentos.length === 1 ? 'una vez' : `${intentos.length} veces`} en este dispositivo. Tu
+                    informe incluirá todos los intentos, también los que dejaste sin terminar.
                   </p>
                 )
               )}
