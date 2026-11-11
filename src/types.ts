@@ -28,6 +28,8 @@ export type Actividad = {
   videoId: string
   /** Vídeo propio en Drive, Dropbox, OneDrive o enlace directo (ya convertido para reproducirse). */
   archivo?: { url: string; servicio: 'drive' | 'dropbox' | 'onedrive' | 'directo' }
+  /** El profesor solo permite un intento: al volver a abrir el enlace, el alumno ve su primer informe. */
+  unIntento?: boolean
   titulo: string
   emailProfesor: string
   preguntas: Pregunta[]

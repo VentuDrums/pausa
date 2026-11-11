@@ -19,7 +19,10 @@ export function Inicio() {
     <div className="mx-auto max-w-5xl px-4 pb-20 sm:px-6">
       <header className="flex items-center justify-between py-6">
         <Marca />
-        <a href="#/crear" className="boton-texto">Crear una actividad</a>
+        <nav className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1">
+          <a href="#/comprobar" className="boton-texto">Comprobar un informe</a>
+          <a href="#/crear" className="boton-texto">Crear una actividad</a>
+        </nav>
       </header>
 
       <section className="grid gap-10 pt-8 md:grid-cols-[1.1fr_1fr] md:items-center md:pt-16">

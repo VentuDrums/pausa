@@ -161,9 +161,17 @@ export function Crear() {
     }
   }, [url, titulo, email, segmentos, preguntas])
 
+  // ¿Se puede repetir la actividad? Se recuerda para la próxima vez.
+  const [unIntento, setUnIntento] = useState(() => {
+    try { return localStorage.getItem('pausa-un-intento-v1') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('pausa-un-intento-v1', unIntento ? '1' : '0') } catch { /* sin almacenamiento */ }
+  }, [unIntento])
+
   useEffect(() => {
     setEnlace(null)
-  }, [preguntas, titulo, email, url])
+  }, [preguntas, titulo, email, url, unIntento])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -349,7 +357,7 @@ export function Crear() {
 
   function generarEnlace() {
     if (!fuente) return
-    setEnlace(crearEnlace({ fuente, titulo, emailProfesor: email, preguntas }))
+    setEnlace(crearEnlace({ fuente, titulo, emailProfesor: email, preguntas, unIntento }))
     setCopiado(false)
   }
 
@@ -847,6 +855,35 @@ export function Crear() {
             <p className="mt-1.5 text-sm text-tinta-suave">
               Al terminar, cada alumno podrá enviarte su informe a esta dirección desde su propio correo.
             </p>
+
+            <fieldset className="mt-5">
+              <legend className="etiqueta">Intentos</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    [false, 'Se puede repetir', 'El informe muestra todos los intentos, con fecha, hora y nota.'],
+                    [true, 'Solo un intento', 'Al volver a abrir el enlace, el alumno ve el informe de su primer intento.'],
+                  ] as const
+                ).map(([valor, nombre, detalle]) => (
+                  <label
+                    key={nombre}
+                    className={`cursor-pointer rounded-xl border-2 p-3 ${unIntento === valor ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}
+                  >
+                    <input type="radio" name="intentos" className="sr-only" checked={unIntento === valor} onChange={() => setUnIntento(valor)} />
+                    <span className="block font-bold">{nombre}</span>
+                    <span className="mt-0.5 block text-sm text-tinta-suave">{detalle}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1.5 text-sm text-tinta-suave">
+                Los intentos se cuentan en el navegador de cada alumno (Pausa no guarda nada). Quien lo repita en otro dispositivo o en
+                modo incógnito no aparecerá; para dudas, el código de comprobación del informe te dice qué pasó.{' '}
+                <a className="font-bold text-boli underline" href="#/comprobar" target="_blank" rel="noreferrer">
+                  Comprobar un informe
+                </a>
+              </p>
+            </fieldset>
+
             {incompletas > 0 && (
               <Aviso>
                 {incompletas === 1 ? 'Hay 1 pregunta sin completar.' : `Hay ${incompletas} preguntas sin completar.`} Rellena el enunciado y todas

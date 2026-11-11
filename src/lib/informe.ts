@@ -1,6 +1,7 @@
 import type { jsPDF as JsPDF } from 'jspdf'
 import type { Actividad } from '../types'
 import { formatoTiempo } from './tiempo'
+import { fechaCorta, notaDe, type Intento } from './intentos'
 
 export type Resultado = {
   nombre: string
@@ -8,6 +9,17 @@ export type Resultado = {
   actividad: Actividad
   /** id de pregunta -> índice de la opción elegida */
   respuestas: Record<string, number>
+  /** Todos los intentos hechos en este dispositivo, del primero al último. */
+  intentos: Intento[]
+  /** Código de comprobación para el profesor. */
+  codigo: string
+}
+
+/** "Intento 1: 4 de 10 (nota 4) – lun, 10 nov, 10:02" */
+export function lineasIntentos(intentos: Intento[]): string[] {
+  return intentos.map(
+    (x, i) => `Intento ${i + 1}: ${x.aciertos} de ${x.total} (nota ${notaDe(x.aciertos, x.total).toLocaleString('es-ES')}) - ${fechaCorta(x.fecha)}`,
+  )
 }
 
 export function calcularNota(r: Resultado) {
@@ -35,6 +47,12 @@ export function enlaceCorreo(r: Resultado): string {
       const respuesta = elegida === undefined ? 'sin responder' : p.opciones[elegida]
       return `${i + 1}. [${bien ? 'BIEN' : 'MAL'}] ${recortar(p.enunciado, 90)} -> ${recortar(respuesta, 50)}`
     }),
+    '',
+    r.intentos.length > 1 ? `Intentos en este dispositivo (${r.intentos.length}):` : 'Intentos en este dispositivo: 1',
+    ...(r.intentos.length > 1 ? lineasIntentos(r.intentos) : []),
+    '',
+    'Código de comprobación (el profesor puede verificarlo en Pausa):',
+    r.codigo,
     '',
     'Enviado desde Pausa',
   ]
@@ -78,7 +96,8 @@ export async function crearPdf(r: Resultado): Promise<{ doc: JsPDF; nombreArchiv
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
   doc.setTextColor(77, 98, 91)
-  doc.text(latino(`${r.nombre}${r.grupo ? ` · ${r.grupo}` : ''}  -  ${new Date().toLocaleString('es-ES')}`), margen, y)
+  const fechaIntento = r.intentos.at(-1)?.fecha ?? new Date().toISOString()
+  doc.text(latino(`${r.nombre}${r.grupo ? ` · ${r.grupo}` : ''}  -  ${new Date(fechaIntento).toLocaleString('es-ES')}`), margen, y)
   y += 10
 
   doc.setFillColor(252, 239, 192)
@@ -120,6 +139,42 @@ export async function crearPdf(r: Resultado): Promise<{ doc: JsPDF; nombreArchiv
     }
     y += 10
   })
+
+  // Historial de intentos y código de comprobación, al final.
+  const historial = r.intentos.length > 1 ? lineasIntentos(r.intentos).map(latino) : []
+  const lineasCodigo = doc.splitTextToSize(r.codigo, ancho)
+  const altoFinal = 16 + historial.length * 5 + 12 + lineasCodigo.length * 4.2
+  if (y + altoFinal > 285) {
+    doc.addPage()
+    y = 20
+  }
+  doc.setDrawColor(221, 228, 225)
+  doc.line(margen, y - 4, margen + ancho, y - 4)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(27, 43, 38)
+  doc.text(
+    r.intentos.length > 1 ? `Intentos en este dispositivo: ${r.intentos.length}` : 'Intentos en este dispositivo: 1',
+    margen,
+    y + 2,
+  )
+  y += 8
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(77, 98, 91)
+  historial.forEach((linea) => {
+    doc.text(linea, margen, y)
+    y += 5
+  })
+  y += 3
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(27, 43, 38)
+  doc.text('Código de comprobación', margen, y)
+  y += 5
+  doc.setFont('courier', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(77, 98, 91)
+  doc.text(lineasCodigo, margen, y)
 
   const nombreArchivo = `resultados-${r.nombre}-${r.actividad.titulo || 'video'}`
     .toLowerCase()

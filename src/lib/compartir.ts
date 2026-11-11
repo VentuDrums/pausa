@@ -17,6 +17,7 @@ export function crearEnlace(
     ...(fuente.tipo === 'archivo' ? { archivo: { url: fuente.url, servicio: fuente.servicio } } : {}),
     titulo: actividad.titulo.trim(),
     emailProfesor: actividad.emailProfesor.trim(),
+    ...(actividad.unIntento ? { unIntento: true } : {}),
     preguntas: [...actividad.preguntas]
       .sort((a, b) => a.tiempo - b.tiempo)
       .map(({ id, tiempo, tipo, enunciado, opciones, correcta, explicacion }) => ({

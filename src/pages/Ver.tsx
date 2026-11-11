@@ -4,7 +4,8 @@ import { Reproductor } from '../components/Reproductor'
 import { LineaTiempo } from '../components/LineaTiempo'
 import { fuenteDeActividad, leerActividad } from '../lib/compartir'
 import { ESTADO_YT, type ReproductorYT } from '../lib/youtube'
-import { calcularNota, descargarPdf, enlaceCorreo, type Resultado } from '../lib/informe'
+import { calcularNota, descargarPdf, enlaceCorreo, lineasIntentos, type Resultado } from '../lib/informe'
+import { crearCodigo, fechaCorta, guardarIntento, idActividad, leerIntentos, type Intento } from '../lib/intentos'
 import type { Actividad, Pregunta } from '../types'
 
 export function Ver({ codigo }: { codigo: string }) {
@@ -20,12 +21,16 @@ export function Ver({ codigo }: { codigo: string }) {
       </div>
     )
   }
-  return <VerActividad actividad={actividad} />
+  return <VerActividad actividad={actividad} id={idActividad(codigo)} />
 }
 
 type Fase = 'datos' | 'viendo' | 'informe'
 
-function VerActividad({ actividad }: { actividad: Actividad }) {
+function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
+  // Intentos anteriores en este navegador (solo se guardan aquí, en el dispositivo del alumno).
+  const previos = useMemo(() => leerIntentos(id), [id])
+  const [intentos, setIntentos] = useState<Intento[]>(previos)
+  const bloqueada = !!actividad.unIntento && previos.length > 0
   const [fase, setFase] = useState<Fase>('datos')
   const [nombre, setNombre] = useState('')
   const [grupo, setGrupo] = useState('')
@@ -122,10 +127,37 @@ function VerActividad({ actividad }: { actividad: Actividad }) {
     }
   }
 
-  const resultado: Resultado = { nombre: nombre.trim(), grupo: grupo.trim(), actividad, respuestas }
+  const guardado = useRef(false)
+  useEffect(() => {
+    if (fase !== 'informe' || guardado.current) return
+    guardado.current = true
+    const { aciertos, total } = calcularNota({ actividad, respuestas, nombre: '', grupo: '', intentos: [], codigo: '' })
+    setIntentos(
+      guardarIntento(id, { fecha: new Date().toISOString(), aciertos, total, nombre: nombre.trim(), grupo: grupo.trim(), respuestas }),
+    )
+  }, [fase, id, actividad, respuestas, nombre, grupo])
+
+  const resultado: Resultado = {
+    nombre: nombre.trim(),
+    grupo: grupo.trim(),
+    actividad,
+    respuestas,
+    intentos,
+    codigo: crearCodigo(id, actividad.titulo, intentos),
+  }
   const numeroActiva = activa ? preguntas.indexOf(activa) + 1 : 0
   const quedanDespues = activa ? preguntas.some((p) => p.id !== activa.id && respuestas[p.id] === undefined) : false
 
+  // Solo un intento y ya lo hizo: se le enseña su informe de entonces, no el vídeo.
+  if (bloqueada) {
+    const primero = previos[0]
+    return (
+      <Informe
+        resultado={{ ...primero, actividad, intentos: previos, codigo: crearCodigo(id, actividad.titulo, previos) }}
+        aviso={`Ya hiciste esta actividad (${fechaCorta(primero.fecha)}). Tu profesor o profesora solo permite un intento: este es tu resultado.`}
+      />
+    )
+  }
   if (fase === 'informe') return <Informe resultado={resultado} />
 
   return (
@@ -171,6 +203,16 @@ function VerActividad({ actividad }: { actividad: Actividad }) {
                 {preguntas.length} {preguntas.length === 1 ? 'pregunta' : 'preguntas'} durante el vídeo
               </p>
               <p className="mt-1 text-sm text-tinta-suave">El vídeo se detendrá para preguntarte. Escribe tu nombre para empezar.</p>
+              {actividad.unIntento ? (
+                <p className="mt-2 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">Solo tienes un intento: cuando termines no podrás repetirla.</p>
+              ) : (
+                previos.length > 0 && (
+                  <p className="mt-2 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">
+                    Ya has hecho esta actividad {previos.length === 1 ? 'una vez' : `${previos.length} veces`} en este dispositivo. Tu informe
+                    incluirá todos los intentos.
+                  </p>
+                )
+              )}
               <label className="etiqueta mt-4" htmlFor="nombre">Nombre y apellidos</label>
               <input id="nombre" className="campo py-2.5" autoComplete="name" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
               <label className="etiqueta mt-3" htmlFor="grupo">Curso y grupo <span className="font-normal text-tinta-suave">(opcional)</span></label>
@@ -258,9 +300,10 @@ function VerActividad({ actividad }: { actividad: Actividad }) {
   )
 }
 
-function Informe({ resultado }: { resultado: Resultado }) {
+function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string }) {
   const { total, aciertos, fallos, nota } = calcularNota(resultado)
   const { actividad, respuestas } = resultado
+  const [copiado, setCopiado] = useState(false)
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
@@ -268,6 +311,7 @@ function Informe({ resultado }: { resultado: Resultado }) {
         <Marca />
       </header>
 
+      {aviso && <p className="mb-5 rounded-xl border-2 border-tinta bg-fosforito-claro p-4 font-bold">{aviso}</p>}
       <p className="text-tinta-suave">{actividad.titulo || 'Vídeo interactivo'}</p>
       <h1 className="mt-1 text-4xl font-extrabold leading-tight sm:text-5xl">
         Has acertado {aciertos} de {total}
@@ -296,6 +340,18 @@ function Informe({ resultado }: { resultado: Resultado }) {
         </div>
       </section>
 
+      {resultado.intentos.length > 1 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-bold">Tus intentos en este dispositivo</h2>
+          <p className="mt-1 text-sm text-tinta-suave">Tu profesor o profesora los verá todos en el informe.</p>
+          <ul className="mt-3 space-y-1">
+            {lineasIntentos(resultado.intentos).map((l) => (
+              <li key={l} className="rounded-lg bg-hoja px-3 py-2 text-sm">{l}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <h2 className="mt-10 text-lg font-bold">Tus respuestas</h2>
       <ol className="mt-3 space-y-3">
         {actividad.preguntas.map((p, i) => {
@@ -318,6 +374,28 @@ function Informe({ resultado }: { resultado: Resultado }) {
           )
         })}
       </ol>
+
+      <section className="mt-10 rounded-xl border-2 border-linea p-4">
+        <h2 className="font-bold">Código de comprobación</h2>
+        <p className="mt-1 text-sm text-tinta-suave">
+          Va incluido en el correo y en el PDF. Sirve para que tu profesor o profesora compruebe que el informe no se ha cambiado.
+        </p>
+        <p className="mt-2 break-all rounded-lg bg-papel p-2 font-mono text-xs">{resultado.codigo}</p>
+        <button
+          type="button"
+          className="boton-texto mt-2"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(resultado.codigo)
+              setCopiado(true)
+            } catch {
+              setCopiado(false)
+            }
+          }}
+        >
+          {copiado ? 'Copiado' : 'Copiar el código'}
+        </button>
+      </section>
     </div>
   )
 }
