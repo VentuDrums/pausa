@@ -7,7 +7,7 @@ import { extraerIdYouTube, type ReproductorYT } from '../lib/youtube'
 import { leerTranscripcion } from '../lib/transcripcion'
 import { extraerAudio, transcribir } from '../lib/whisper'
 import {
-  MODELOS, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, prepararModelo,
+  MODELOS, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, nubeDisponibleHoy, prepararIA,
   type ClaveModelo, type InfoDispositivo,
 } from '../lib/ia'
 import { analizarDispositivo, type Analisis } from '../lib/dispositivo'
@@ -30,6 +30,7 @@ function leerBorrador(): Borrador {
   }
 }
 
+const CLAVE_DONDE = 'pausa-donde-ia-v1'
 const CLAVE_ANALISIS = 'pausa-analisis-v1'
 
 function leerAnalisisGuardado(): Analisis | null {
@@ -61,6 +62,10 @@ export function Crear() {
   const [dispositivo, setDispositivo] = useState<InfoDispositivo | null>(null)
   const [analisis, setAnalisis] = useState<Analisis | null>(leerAnalisisGuardado)
   const [analizando, setAnalizando] = useState(false)
+  // Dónde trabaja la IA: en la nube (Cloudflare, sin descargas) o en este ordenador.
+  const [enNube, setEnNube] = useState(() => {
+    try { return localStorage.getItem(CLAVE_DONDE) !== 'local' } catch { return true }
+  })
   const [modelo, setModelo] = useState<ClaveModelo>(() => leerAnalisisGuardado()?.recomendado ?? 'equilibrado')
   const marcador = useRef<HTMLAnchorElement>(null)
 
@@ -79,6 +84,10 @@ export function Crear() {
   const videoId = extraerIdYouTube(url)
   const duracionTotal = duracion || segmentos[segmentos.length - 1]?.fin || 0
   const ocupado = trabajo !== null || regenerando !== null
+
+  useEffect(() => {
+    try { localStorage.setItem(CLAVE_DONDE, enNube ? 'nube' : 'local') } catch { /* sin almacenamiento */ }
+  }, [enNube])
 
   useEffect(() => {
     comprobarDispositivo().then((info) => {
@@ -234,9 +243,9 @@ export function Crear() {
     cancelar.current = false
     setError(null)
     setPreguntas([])
-    setTrabajo({ texto: 'Preparando el modelo' })
+    setTrabajo({ texto: enNube ? 'Conectando con la IA en la nube' : 'Preparando el modelo' })
     try {
-      await prepararModelo(modelo, dispositivo.webgpu, (texto, proporcion) => setTrabajo({ texto, proporcion }))
+      await prepararIA({ nube: enNube, clave: modelo, webgpu: dispositivo.webgpu, avance: (texto, proporcion) => setTrabajo({ texto, proporcion }) })
       const creadas = await generarPreguntas({
         segmentos,
         cantidad,
@@ -263,7 +272,7 @@ export function Crear() {
     setError(null)
     setRegenerando(p.id)
     try {
-      await prepararModelo(modelo, dispositivo.webgpu, (texto, proporcion) => setTrabajo({ texto, proporcion }))
+      await prepararIA({ nube: enNube, clave: modelo, webgpu: dispositivo.webgpu, avance: (texto, proporcion) => setTrabajo({ texto, proporcion }) })
       setTrabajo(null)
       // intento 1 = con algo de aleatoriedad, para que salga una pregunta distinta
       const foco = p.foco ?? Math.floor(p.fuente.length / 2)
@@ -537,19 +546,50 @@ export function Crear() {
           </Paso>
 
           <Paso numero={3} titulo="Preguntas" hecho={preguntas.length > 0} bloqueado={segmentos.length === 0}>
-            {dispositivo && dispositivo.webgpu && graficaDescartada() && (
+            <fieldset disabled={ocupado} className="mb-5">
+              <legend className="etiqueta">¿Dónde trabaja la IA?</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className={`cursor-pointer rounded-xl border-2 p-3 ${enNube ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}>
+                  <input type="radio" name="donde" className="sr-only" checked={enNube} onChange={() => setEnNube(true)} />
+                  <span className="block font-bold">
+                    En la nube
+                    <span className="ml-2 rounded bg-fosforito-claro px-1.5 py-0.5 text-xs">Recomendado</span>
+                  </span>
+                  <span className="mt-0.5 block text-sm text-tinta-suave">
+                    Un modelo grande (Qwen3 30B) en los servidores de Cloudflare. Sin descargas, preguntas mejores y en segundos.
+                  </span>
+                </label>
+                <label className={`cursor-pointer rounded-xl border-2 p-3 ${!enNube ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}>
+                  <input type="radio" name="donde" className="sr-only" checked={!enNube} onChange={() => setEnNube(false)} />
+                  <span className="block font-bold">En este ordenador</span>
+                  <span className="mt-0.5 block text-sm text-tinta-suave">
+                    Un modelo más pequeño que se descarga en tu navegador. Nada sale de tu ordenador.
+                  </span>
+                </label>
+              </div>
+              {enNube && (
+                <p className="mt-2 text-sm leading-relaxed text-tinta-suave">
+                  {nubeDisponibleHoy()
+                    ? 'La nube tiene un cupo gratuito diario compartido por todos los profesores. Si se agota, Pausa usará el modelo de tu navegador que elijas abajo.'
+                    : 'Hoy ya se ha agotado el cupo gratuito de la nube (se renueva a la 1:00 o las 2:00, hora peninsular). Mientras tanto, Pausa usará el modelo de tu navegador.'}
+                </p>
+              )}
+            </fieldset>
+
+            {!enNube && dispositivo && dispositivo.webgpu && graficaDescartada() && (
               <Aviso>
                 La última vez la tarjeta gráfica de este dispositivo no pudo con el modelo, así que la IA usará el procesador: irá más
                 despacio. Pulsa «Analizar mi dispositivo» si quieres volver a probar con la gráfica.
               </Aviso>
             )}
-            {dispositivo && !dispositivo.webgpu && (
+            {!enNube && dispositivo && !dispositivo.webgpu && (
               <Aviso>
                 Este navegador no puede usar la tarjeta gráfica, así que la IA funcionará con el procesador: irá más despacio. Te
                 recomendamos el modelo «Ligero», o abrir la página en Chrome o Edge actualizados.
               </Aviso>
             )}
 
+            {!enNube && (
             <div className="mb-5 rounded-xl border-2 border-linea bg-papel/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -583,10 +623,11 @@ export function Crear() {
                 </div>
               )}
             </div>
+            )}
 
             <fieldset disabled={ocupado} className="space-y-5">
               <div>
-                <legend className="etiqueta">Modelo de IA</legend>
+                <legend className="etiqueta">{enNube ? 'Modelo de reserva en tu navegador (solo si falla la nube)' : 'Modelo de IA'}</legend>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {MODELOS.map((m) => (
                     <label

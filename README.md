@@ -31,6 +31,20 @@ npm run build
 Sube la carpeta `dist/` a cualquier hosting estático (Netlify Drop, GitHub Pages, Vercel...).
 Tiene que ser HTTPS para que funcionen la IA y el botón de copiar.
 
+## IA en la nube (Cloudflare)
+
+Por defecto, las preguntas las escribe **Qwen3 30B** en Cloudflare Workers AI, con el cupo gratuito diario de la cuenta
+(10.000 «neuronas», unas 45 actividades de 7 preguntas al día). Pausa llama a un pequeño intermediario que está en
+`servidor/`: solo atiende peticiones de las páginas de Pausa y no necesita claves. Si el cupo se agota o la nube no
+responde, Pausa usa el modelo del navegador.
+
+Para publicar cambios del intermediario:
+
+```bash
+cd servidor
+npx wrangler deploy
+```
+
 ## Estructura
 
 | Archivo | Qué hace |

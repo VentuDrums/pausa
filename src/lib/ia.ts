@@ -176,8 +176,8 @@ export function graficaDescartada(): boolean {
 }
 
 /** Para mostrar al profesor con qué se está generando. */
-export function motorActual(): 'webgpu' | 'wasm' {
-  return motor
+export function motorActual(): 'webgpu' | 'wasm' | 'nube' {
+  return enNube ? 'nube' : motor
 }
 
 // Windows puede reiniciar el controlador de la tarjeta gráfica a mitad de trabajo ("device lost").
@@ -185,7 +185,113 @@ export function motorActual(): 'webgpu' | 'wasm' {
 // Si lo que pasa es que deja de responder (TIEMPO_AGOTADO) con la gráfica, pasamos al procesador.
 const GRAFICA_PERDIDA = /device.{0,3}is lost|device lost|mapAsync|DXGI_ERROR|GPUDevice|TIEMPO_AGOTADO/i
 
+/* ---------- IA en la nube (Cloudflare Workers AI, Qwen3 30B) ---------- */
+
+// Intermediario publicado desde la carpeta `servidor/`. Usa el cupo gratuito diario de Cloudflare,
+// compartido por todos los profesores; si se agota o falla, Pausa sigue con el modelo del navegador.
+const URL_NUBE = 'https://pausa-ia.pausa-ventudrums.workers.dev'
+const CLAVE_NUBE_AGOTADA = 'pausa-nube-agotada-v1'
+
+let enNube = false
+let reservaWebgpu = false
+
+/** El cupo de Cloudflare se reinicia cada día a las 00:00 UTC. */
+const hoyUTC = () => new Date().toISOString().slice(0, 10)
+
+function nubeAgotadaHoy(): boolean {
+  try { return localStorage.getItem(CLAVE_NUBE_AGOTADA) === hoyUTC() } catch { return false }
+}
+
+function marcarNubeAgotada() {
+  try { localStorage.setItem(CLAVE_NUBE_AGOTADA, hoyUTC()) } catch { /* sin almacenamiento */ }
+}
+
+/** Si el cupo gratuito de hoy ya se gastó (para avisar al profesor antes de empezar). */
+export function nubeDisponibleHoy(): boolean {
+  return !nubeAgotadaHoy()
+}
+
+/**
+ * Deja la IA lista. Con `nube`, no descarga nada: usa el servidor y solo carga el modelo
+ * del navegador (`clave`) si la nube no está disponible.
+ */
+export async function prepararIA(opciones: { nube: boolean; clave: ClaveModelo; webgpu: boolean; avance: Avance }) {
+  const { nube, clave, webgpu, avance } = opciones
+  ultimaCarga = { clave, avance }
+  reservaWebgpu = webgpu
+  if (nube && !nubeAgotadaHoy()) {
+    enNube = true
+    return
+  }
+  enNube = false
+  if (nube) avance('El cupo gratuito de hoy de la IA en la nube se ha agotado. Usando el modelo de tu navegador…')
+  await prepararModelo(clave, webgpu, avance)
+}
+
+class ErrorNube extends Error {
+  tipo: 'cuota' | 'otro'
+  constructor(tipo: 'cuota' | 'otro', mensaje: string) {
+    super(mensaje)
+    this.tipo = tipo
+  }
+}
+
+async function pedirANube(texto: string, aleatorio: boolean, maxTokens: number): Promise<string> {
+  const control = new AbortController()
+  const reloj = setTimeout(() => control.abort(), 90_000)
+  try {
+    const r = await fetch(URL_NUBE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto, aleatorio, maxTokens }),
+      signal: control.signal,
+    })
+    const datos = await r.json().catch(() => ({}))
+    if (r.status === 429 || datos.error === 'cuota') throw new ErrorNube('cuota', 'Cupo diario agotado')
+    if (!r.ok || typeof datos.texto !== 'string') throw new ErrorNube('otro', `${r.status} ${datos.error ?? ''} ${datos.detalle ?? ''}`)
+    return datos.texto
+  } catch (e) {
+    if (e instanceof ErrorNube) throw e
+    throw new ErrorNube('otro', String((e as Error)?.message ?? e))
+  } finally {
+    clearTimeout(reloj)
+  }
+}
+
+/**
+ * Pide la respuesta a la nube (con un reintento si falla algo puntual).
+ * Si no hay manera, cambia al modelo del navegador y devuelve null para que lo use.
+ */
+async function completarEnNube(texto: string, aleatorio: boolean, maxTokens: number): Promise<string | null> {
+  for (let intento = 0; intento < 2; intento++) {
+    try {
+      return await pedirANube(texto, aleatorio, maxTokens)
+    } catch (e) {
+      const err = e as ErrorNube
+      console.warn('La IA en la nube ha fallado', err)
+      if (err.tipo === 'cuota') {
+        marcarNubeAgotada()
+        break
+      }
+      if (intento === 0) await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+  enNube = false
+  const { clave, avance } = ultimaCarga!
+  avance(
+    nubeAgotadaHoy()
+      ? 'El cupo gratuito de hoy de la IA en la nube se ha agotado. Usando el modelo de tu navegador…'
+      : 'La IA en la nube no responde. Usando el modelo de tu navegador…',
+  )
+  await prepararModelo(clave, reservaWebgpu, avance)
+  return null
+}
+
 async function completar(texto: string, aleatorio = false, maxTokens = 350): Promise<string> {
+  if (enNube) {
+    const desdeNube = await completarEnNube(texto, aleatorio, maxTokens)
+    if (desdeNube !== null) return desdeNube
+  }
   try {
     return await pedir({ tipo: 'completar', texto, aleatorio, maxTokens }, inactividad())
   } catch (e) {
@@ -299,15 +405,26 @@ function instrucciones(contexto: Segmento[], foco: number) {
 
 /** Quita referencias a cómo se le dio el texto al modelo ("en la frase 7", "según el fragmento"...). */
 function paraElAlumno(texto: string): string {
+  const mayus = (m: string, t: string) => (/^[A-ZÁÉÍÓÚ]/.test(m) ? t[0].toUpperCase() + t.slice(1) : t)
   return texto
+    // "La frase 5 indica…" → "El vídeo indica…"
+    .replace(/\b(la|esta) frases?(?: \[?\d+\]?)?(?=\s+(indica|menciona|dice|señala|explica|afirma|muestra|habla|cuenta)\b)/gi, (m) =>
+      mayus(m, 'el vídeo'))
+    // "como dice la frase 4" → "como dice el vídeo"
+    .replace(/\b(dice|indica|menciona|explica|señala|afirma|muestra) (la|esta) frases?(?: \[?\d+\]?)?/gi, (_m, verbo: string) => `${verbo} el vídeo`)
     .replace(/\s*,?\s*\b(en|de) (la|las) frases? \[?\d+\]?(\s*(y|a)\s*\[?\d+\]?)?/gi, '')
-    .replace(/\s*\(?\s*frases? \[?\d+\]?\s*\)?/gi, '')
+    // "mencionada en la frase" → "mencionada en el vídeo"
+    .replace(/\b(en|de) (la|esta) frase\b/gi, (_m, prep: string) => (prep.toLowerCase() === 'de' ? 'del vídeo' : `${prep} el vídeo`))
+    .replace(/\s*\(?\s*frases? \[?\d+\]?\s*\)?/gi, ' ')
     .replace(/\b(según|en|de) (el|este) (texto|fragmento)\b/gi, (_m, prep: string) => `${prep} el vídeo`)
+    .replace(/\b(el|este) (texto|fragmento)\b/gi, (m) => mayus(m, 'el vídeo'))
     // El modelo pequeño a veces remata la afirmación con "…, por lo que la respuesta es afirmativa".
     .replace(/\s*,?\s*(por lo que|así que|por tanto,?|luego)\s+(la respuesta|esto|esta afirmación|la afirmación)\s+es\s+(afirmativa|negativa|verdadera|falsa|correcta|incorrecta|cierta)\b/gi, '')
     .replace(/\s+([?.,;:])/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim()
+    // Si al quitar algo la frase ha quedado empezando en minúscula.
+    .replace(/^([¿¡]?)([a-záéíóúñ])/, (_m, signo: string, letra: string) => signo + letra.toUpperCase())
 }
 
 type Borrador = { indice: number; pregunta: string; correcta: string; incorrectas: string[]; explicacion: string }
