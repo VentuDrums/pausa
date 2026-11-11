@@ -52,8 +52,43 @@ function extraerTexto(salida: any): string {
   return String(texto).replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim()
 }
 
+/**
+ * Vídeos de Google Drive: Google rechaza (503) que un navegador los reproduzca desde otra web,
+ * pero sí los sirve a un servidor. Este camino los pide a Google y los pasa tal cual, respetando
+ * los saltos (cabecera Range) para que el alumno pueda moverse por el vídeo.
+ * Solo atiende a las páginas de Pausa (cabecera Referer) y solo a archivos de Drive.
+ */
+async function videoDeDrive(peticion: Request, id: string): Promise<Response> {
+  const referer = peticion.headers.get('Referer') ?? ''
+  const permitido = [...ORIGENES].some((o) => referer.startsWith(`${o}/`))
+  if (!permitido) return new Response('No permitido', { status: 403 })
+  if (!/^[\w-]{10,100}$/.test(id)) return new Response('Identificador no válido', { status: 400 })
+
+  const cabeceras = new Headers()
+  const rango = peticion.headers.get('Range')
+  if (rango) cabeceras.set('Range', rango)
+  const respuesta = await fetch(`https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`, {
+    headers: cabeceras,
+  })
+  const tipo = respuesta.headers.get('Content-Type') ?? ''
+  // Si Google devuelve una página (archivo privado, borrado o con demasiadas descargas), no es un vídeo.
+  if (!respuesta.ok || tipo.startsWith('text/html')) {
+    return new Response('El vídeo de Drive no está disponible', { status: 502, headers: { 'Access-Control-Allow-Origin': '*' } })
+  }
+  const salida = new Headers({ 'Access-Control-Allow-Origin': '*', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600' })
+  for (const c of ['Content-Type', 'Content-Length', 'Content-Range']) {
+    const valor = respuesta.headers.get(c)
+    if (valor) salida.set(c, valor)
+  }
+  return new Response(respuesta.body, { status: respuesta.status, headers: salida })
+}
+
 export default {
   async fetch(peticion: Request, env: Env): Promise<Response> {
+    const ruta = new URL(peticion.url).pathname
+    const drive = ruta.match(/^\/drive\/([^/]+)$/)
+    if (drive && (peticion.method === 'GET' || peticion.method === 'HEAD')) return videoDeDrive(peticion, drive[1])
+
     const origen = peticion.headers.get('Origin') ?? ''
     if (!ORIGENES.has(origen)) return new Response('No permitido', { status: 403 })
     if (peticion.method === 'OPTIONS') return new Response(null, { status: 204, headers: cabeceras(origen) })

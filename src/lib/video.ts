@@ -19,12 +19,38 @@ export const NOMBRE_SERVICIO: Record<ServicioArchivo, string> = {
   directo: 'enlace directo',
 }
 
+// Google no deja que un navegador reproduzca vídeos de Drive desde otra web, pero sí se los da a un servidor:
+// los pedimos a través del intermediario de Pausa en Cloudflare (servidor/), que los pasa tal cual.
+const INTERMEDIARIO = 'https://pausa-ia.pausa-ventudrums.workers.dev'
+
 /** base64url, como lo pide la API de enlaces compartidos de OneDrive. */
 function base64Url(texto: string): string {
   const bytes = new TextEncoder().encode(texto)
   let binario = ''
   bytes.forEach((b) => (binario += String.fromCharCode(b)))
   return btoa(binario).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+}
+
+/**
+ * OneDrive personal: los enlaces actuales tienen la forma 1drv.ms/<tipo>/c/<cuenta>/<código>, y el archivo
+ * se descarga desde my.microsoftpersonalcontent.com. Los enlaces antiguos (1drv.ms/v/s!…) usan la API de shares.
+ */
+function oneDrivePersonal(enlace: string): string {
+  const u = new URL(enlace)
+  // Las direcciones de onedrive.live.com llevan el enlace original codificado en «redeem».
+  const redeem = u.searchParams.get('redeem')
+  if (redeem) {
+    try {
+      return oneDrivePersonal(atob(redeem.replace(/-/g, '+').replace(/_/g, '/')))
+    } catch {
+      /* seguimos con el enlace tal cual */
+    }
+  }
+  const nuevo = u.pathname.match(/^\/\w\/c\/([0-9a-f]+)\/([\w-]+)/i)
+  if (nuevo) {
+    return `https://my.microsoftpersonalcontent.com/personal/${nuevo[1].toLowerCase()}/_layouts/15/download.aspx?share=${nuevo[2]}`
+  }
+  return `https://api.onedrive.com/v1.0/shares/u!${base64Url(enlace)}/root/content`
 }
 
 /**
@@ -50,7 +76,7 @@ export function leerEnlaceVideo(texto: string): FuenteVideo | null {
   if (host === 'drive.google.com' || host === 'docs.google.com' || host === 'drive.usercontent.google.com') {
     const idDrive = u.pathname.match(/\/d\/([\w-]{10,})/)?.[1] ?? u.searchParams.get('id')
     if (!idDrive) return null
-    return { tipo: 'archivo', servicio: 'drive', url: `https://drive.google.com/uc?export=download&id=${idDrive}` }
+    return { tipo: 'archivo', servicio: 'drive', url: `${INTERMEDIARIO}/drive/${idDrive}` }
   }
 
   // Dropbox: cambiar dl=0 por raw=1 sirve el archivo tal cual (y permite saltar a cualquier minuto).
@@ -60,9 +86,9 @@ export function leerEnlaceVideo(texto: string): FuenteVideo | null {
     return { tipo: 'archivo', servicio: 'dropbox', url: u.toString() }
   }
 
-  // OneDrive personal (1drv.ms, onedrive.live.com): API pública de enlaces compartidos.
-  if (host === '1drv.ms' || host.endsWith('onedrive.live.com')) {
-    return { tipo: 'archivo', servicio: 'onedrive', url: `https://api.onedrive.com/v1.0/shares/u!${base64Url(t)}/root/content` }
+  // OneDrive personal (1drv.ms, onedrive.live.com, photos.onedrive.com).
+  if (host === '1drv.ms' || host.endsWith('onedrive.live.com') || host === 'photos.onedrive.com') {
+    return { tipo: 'archivo', servicio: 'onedrive', url: oneDrivePersonal(t) }
   }
 
   // OneDrive de un centro educativo (SharePoint / Microsoft 365): añadir download=1.

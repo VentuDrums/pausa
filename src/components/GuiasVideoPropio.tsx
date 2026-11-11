@@ -58,7 +58,7 @@ export function GuiasVideoPropio() {
             <li>Pulsa <strong>Copiar enlace</strong> y pégalo arriba.</li>
           </Pasos>
           <p className="mt-1 text-tinta-suave">
-            Drive a veces no deja reproducir vídeos grandes fuera de su web. Si no se ve, prueba con Dropbox o con YouTube oculto.
+            Si el vídeo no se ve, comprueba que está compartido para cualquier persona. Si sigue sin verse, prueba con Dropbox o con YouTube oculto.
           </p>
         </div>
         <div>
