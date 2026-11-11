@@ -7,7 +7,7 @@ import { extraerIdYouTube, type ReproductorYT } from '../lib/youtube'
 import { leerTranscripcion } from '../lib/transcripcion'
 import { extraerAudio, transcribir } from '../lib/whisper'
 import {
-  MODELOS, cantidadSugerida, comprobarDispositivo, generarPregunta, generarPreguntas, modeloRecomendado, prepararModelo,
+  MODELOS, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, prepararModelo,
   type ClaveModelo, type InfoDispositivo,
 } from '../lib/ia'
 import { analizarDispositivo, type Analisis } from '../lib/dispositivo'
@@ -113,6 +113,7 @@ export function Crear() {
 
   async function analizar() {
     setAnalizando(true)
+    volverAProbarGrafica()
     try {
       const resultado = await analizarDispositivo()
       setAnalisis(resultado)
@@ -193,10 +194,36 @@ export function Crear() {
     }
   }
 
+  // En móviles, si la pantalla se apaga la página se congela: la mantenemos encendida mientras la IA trabaja.
+  const hayTrabajo = trabajo !== null
+  useEffect(() => {
+    if (!hayTrabajo) return
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }
+    let bloqueo: { release: () => Promise<void> } | null = null
+    let activo = true
+    const pedirBloqueo = () => {
+      if (document.visibilityState !== 'visible') return
+      nav.wakeLock?.request('screen').then((b) => {
+        if (activo) bloqueo = b
+        else b.release()
+      }).catch(() => { /* no disponible: no pasa nada */ })
+    }
+    pedirBloqueo()
+    document.addEventListener('visibilitychange', pedirBloqueo)
+    return () => {
+      activo = false
+      document.removeEventListener('visibilitychange', pedirBloqueo)
+      bloqueo?.release().catch(() => {})
+    }
+  }, [hayTrabajo])
+
   function mensajeErrorIA(e: unknown) {
     const texto = String((e as Error)?.message ?? e)
     if (/memory|out of|device lost|allocation/i.test(texto)) {
       return 'Este dispositivo se ha quedado sin memoria para el modelo. Elige el modelo «Ligero» e inténtalo de nuevo.'
+    }
+    if (texto.includes('TIEMPO_AGOTADO')) {
+      return 'El modelo ha dejado de responder en este dispositivo. Prueba con el modelo «Ligero», cierra otras pestañas y aplicaciones, o prepara la actividad en un ordenador.'
     }
     return `La IA no ha podido terminar: ${texto}`
   }
@@ -510,6 +537,12 @@ export function Crear() {
           </Paso>
 
           <Paso numero={3} titulo="Preguntas" hecho={preguntas.length > 0} bloqueado={segmentos.length === 0}>
+            {dispositivo && dispositivo.webgpu && graficaDescartada() && (
+              <Aviso>
+                La última vez la tarjeta gráfica de este dispositivo no pudo con el modelo, así que la IA usará el procesador: irá más
+                despacio. Pulsa «Analizar mi dispositivo» si quieres volver a probar con la gráfica.
+              </Aviso>
+            )}
             {dispositivo && !dispositivo.webgpu && (
               <Aviso>
                 Este navegador no puede usar la tarjeta gráfica, así que la IA funcionará con el procesador: irá más despacio. Te
@@ -728,6 +761,11 @@ export function Crear() {
           <div className="mx-auto flex max-w-7xl items-center gap-4">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold">{trabajo.texto}</p>
+              {motorActual() === 'wasm' && (
+                <p className="text-xs text-tinta-suave">
+                  Funciona con el procesador: cada pregunta puede tardar unos minutos. No cierres la página.
+                </p>
+              )}
               <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-linea">
                 {trabajo.proporcion !== undefined ? (
                   <div className="h-full rounded-full bg-boli transition-[width]" style={{ width: `${Math.round(trabajo.proporcion * 100)}%` }} />

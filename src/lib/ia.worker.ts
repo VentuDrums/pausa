@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { AutoProcessor, Qwen3_5ForConditionalGeneration } from '@huggingface/transformers'
+import { AutoProcessor, Qwen3_5ForCausalLM, TextStreamer } from '@huggingface/transformers'
 
 // El modelo de lenguaje vive en este hilo aparte para que la página no se congele mientras escribe.
 let procesador: any = null
@@ -26,9 +26,10 @@ async function cargar(idModelo: string, dispositivo: 'webgpu' | 'wasm') {
     enviar({ tipo: 'progreso', proporcion: t ? c / t : 0 })
   }
   procesador = await AutoProcessor.from_pretrained(idModelo, { progress_callback: progreso } as any)
-  modelo = await Qwen3_5ForConditionalGeneration.from_pretrained(idModelo, {
-    // q4 funciona también en gráficas sin soporte de media precisión y en el procesador (wasm).
-    dtype: { embed_tokens: 'q4', vision_encoder: 'q4', decoder_model_merged: 'q4' },
+  modelo = await Qwen3_5ForCausalLM.from_pretrained(idModelo, {
+    // Solo la parte de texto (la de visión no la usamos). q4 funciona también en gráficas sin media precisión,
+    // pero la tabla de palabras en q4 usa una operación que el procesador (wasm) no tiene: allí va en fp16 (solo usa operaciones normales).
+    dtype: { embed_tokens: dispositivo === 'wasm' ? 'fp16' : 'q4', decoder_model_merged: 'q4' },
     device: dispositivo,
     progress_callback: progreso,
   } as any)
@@ -44,8 +45,19 @@ async function completar(texto: string, aleatorio: boolean, maxTokens: number): 
   // Por si la plantilla ignora la opción: dejamos el bloque de razonamiento ya abierto y cerrado, vacío.
   if (!/<\/think>\s*$/.test(plantilla)) plantilla = `${plantilla.replace(/<think>\s*$/, '')}<think>\n\n</think>\n\n`
   const entrada = await procesador(plantilla)
+  // Un "latido" por segundo mientras escribe: así la página sabe que sigue vivo aunque sea lento (móviles).
+  let ultimo = 0
+  const streamer = new TextStreamer(procesador.tokenizer, {
+    skip_prompt: true,
+    callback_function: () => {},
+    token_callback_function: () => {
+      const ahora = Date.now()
+      if (ahora - ultimo > 1000) { ultimo = ahora; enviar({ tipo: 'latido' }) }
+    },
+  } as any)
   const salida: any = await modelo.generate({
     ...entrada,
+    streamer,
     max_new_tokens: maxTokens,
     repetition_penalty: 1.05,
     ...(aleatorio ? { do_sample: true, temperature: 0.7, top_p: 0.8 } : { do_sample: false }),

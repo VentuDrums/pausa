@@ -44,7 +44,8 @@ export function modeloRecomendado(info: InfoDispositivo): ClaveModelo {
 let worker: Worker | null = null
 let modeloCargado: string | null = null
 let siguienteId = 0
-const pendientes = new Map<number, { resolver: (v: any) => void; rechazar: (e: Error) => void }>()
+type Pendiente = { resolver: (v: any) => void; rechazar: (e: Error) => void; reavivar: () => void }
+const pendientes = new Map<number, Pendiente>()
 let alProgresar: ((proporcion: number) => void) | null = null
 
 function obtenerWorker(): Worker {
@@ -52,8 +53,10 @@ function obtenerWorker(): Worker {
   worker = new Worker(new URL('./ia.worker.ts', import.meta.url), { type: 'module' })
   worker.onmessage = (e: MessageEvent) => {
     const m = e.data
-    if (m.tipo === 'progreso') {
-      alProgresar?.(m.proporcion)
+    if (m.tipo === 'progreso' || m.tipo === 'latido') {
+      // Sigue vivo: reiniciamos el reloj de inactividad de lo que esté esperando.
+      pendientes.forEach((p) => p.reavivar())
+      if (m.tipo === 'progreso') alProgresar?.(m.proporcion)
       return
     }
     const p = pendientes.get(m.id)
@@ -73,45 +76,50 @@ function obtenerWorker(): Worker {
 
 const SIN_RESPUESTA = 'TIEMPO_AGOTADO'
 
-/** Envía un trabajo al hilo del modelo. Si pasa `limiteMs` sin respuesta, se da por perdido. */
-function pedir(mensaje: Record<string, unknown>, limiteMs?: number): Promise<any> {
+/**
+ * Envía un trabajo al hilo del modelo. Si pasan `inactividadMs` sin ninguna señal de vida
+ * (progreso de descarga o palabras escritas), se da por perdido.
+ */
+function pedir(mensaje: Record<string, unknown>, inactividadMs?: number): Promise<any> {
   const id = ++siguienteId
   return new Promise((resolver, rechazar) => {
     let reloj: ReturnType<typeof setTimeout> | undefined
-    const terminar = () => clearTimeout(reloj)
-    pendientes.set(id, {
-      resolver: (v) => { terminar(); resolver(v) },
-      rechazar: (e) => { terminar(); rechazar(e) },
-    })
-    if (limiteMs) {
+    const armar = () => {
+      if (!inactividadMs) return
+      clearTimeout(reloj)
       reloj = setTimeout(() => {
         if (!pendientes.has(id)) return
         pendientes.delete(id)
         rechazar(new Error(SIN_RESPUESTA))
-      }, limiteMs)
+      }, inactividadMs)
     }
+    pendientes.set(id, {
+      resolver: (v) => { clearTimeout(reloj); resolver(v) },
+      rechazar: (e) => { clearTimeout(reloj); rechazar(e) },
+      reavivar: armar,
+    })
+    armar()
     obtenerWorker().postMessage({ ...mensaje, id })
   })
 }
 
 type Avance = (texto: string, proporcion?: number) => void
-let ultimaCarga: { clave: ClaveModelo; webgpu: boolean; avance: Avance } | null = null
+let ultimaCarga: { clave: ClaveModelo; avance: Avance } | null = null
 
-export async function prepararModelo(clave: ClaveModelo, webgpu: boolean, avance: Avance) {
-  const { id } = MODELOS.find((m) => m.clave === clave)!
-  ultimaCarga = { clave, webgpu, avance }
-  if (modeloCargado === id) return
-  alProgresar = (p) => avance('Cargando el modelo que escribe las preguntas (la primera vez se descarga)', p)
-  avance('Preparando el modelo')
-  await pedir({ tipo: 'cargar', modelo: id, dispositivo: webgpu ? 'webgpu' : 'wasm' })
-  alProgresar = null
-  modeloCargado = id
+// Motor en uso. Empieza con la tarjeta gráfica si la hay; si en este dispositivo se cuelga o falla,
+// pasamos al procesador (más lento, pero funciona en todas partes) y lo recordamos para la próxima vez.
+const CLAVE_SIN_GRAFICA = 'pausa-sin-grafica-v1'
+let usarGrafica = true
+try { usarGrafica = localStorage.getItem(CLAVE_SIN_GRAFICA) !== '1' } catch { /* sin almacenamiento */ }
+let motor: 'webgpu' | 'wasm' = 'wasm'
+
+/** Sin señales de vida durante este tiempo, el modelo se da por colgado. */
+const inactividad = () => (motor === 'webgpu' ? 90_000 : 5 * 60_000)
+
+function renunciarAGrafica() {
+  usarGrafica = false
+  try { localStorage.setItem(CLAVE_SIN_GRAFICA, '1') } catch { /* sin almacenamiento */ }
 }
-
-// Windows puede reiniciar el controlador de la tarjeta gráfica a mitad de trabajo ("device lost").
-// Cuando pasa, el modelo queda inservible: cerramos su hilo, lo volvemos a cargar (ya está descargado) y repetimos.
-// También cuando el modelo deja de responder (TIEMPO_AGOTADO): se trata igual, reiniciándolo.
-const GRAFICA_PERDIDA = /device.{0,3}is lost|device lost|mapAsync|DXGI_ERROR|GPUDevice|TIEMPO_AGOTADO/i
 
 function reiniciarHilo() {
   worker?.terminate()
@@ -121,24 +129,81 @@ function reiniciarHilo() {
   pendientes.clear()
 }
 
-async function completar(texto: string, aleatorio = false, maxTokens = 350): Promise<string> {
-  // Con tarjeta gráfica, una respuesta tarda unos segundos; con el procesador, bastante más.
-  const limite = ultimaCarga?.webgpu === false ? 10 * 60_000 : 2 * 60_000
+async function cargarCon(id: string, avance: Avance) {
+  alProgresar = (p) =>
+    p >= 0.995
+      ? avance('Poniendo en marcha el modelo en este dispositivo (puede tardar un poco)…')
+      : avance('Descargando el modelo que escribe las preguntas (solo la primera vez)', p)
   try {
-    return await pedir({ tipo: 'completar', texto, aleatorio, maxTokens }, limite)
+    await pedir({ tipo: 'cargar', modelo: id, dispositivo: motor }, inactividad())
+  } finally {
+    alProgresar = null
+  }
+}
+
+export async function prepararModelo(clave: ClaveModelo, webgpu: boolean, avance: Avance) {
+  const { id } = MODELOS.find((m) => m.clave === clave)!
+  ultimaCarga = { clave, avance }
+  const deseado = webgpu && usarGrafica ? 'webgpu' : 'wasm'
+  if (modeloCargado === id && motor === deseado) return
+  if (modeloCargado) reiniciarHilo()
+  motor = deseado
+  avance('Preparando el modelo')
+  try {
+    await cargarCon(id, avance)
+  } catch (e) {
+    if (motor !== 'webgpu') throw e
+    // La gráfica de este dispositivo no ha podido arrancar el modelo: probamos con el procesador.
+    console.warn('El modelo no arranca con la tarjeta gráfica; se prueba con el procesador', e)
+    reiniciarHilo()
+    renunciarAGrafica()
+    motor = 'wasm'
+    avance('La tarjeta gráfica no ha podido con el modelo. Usando el procesador (más lento)…')
+    await cargarCon(id, avance)
+  }
+  modeloCargado = id
+}
+
+/** Vuelve a dar una oportunidad a la tarjeta gráfica (al analizar de nuevo el dispositivo). */
+export function volverAProbarGrafica() {
+  usarGrafica = true
+  try { localStorage.removeItem(CLAVE_SIN_GRAFICA) } catch { /* sin almacenamiento */ }
+}
+
+/** Si la tarjeta gráfica falló antes en este dispositivo y ahora se usa el procesador. */
+export function graficaDescartada(): boolean {
+  return !usarGrafica
+}
+
+/** Para mostrar al profesor con qué se está generando. */
+export function motorActual(): 'webgpu' | 'wasm' {
+  return motor
+}
+
+// Windows puede reiniciar el controlador de la tarjeta gráfica a mitad de trabajo ("device lost").
+// Cuando pasa, el modelo queda inservible: cerramos su hilo, lo volvemos a cargar (ya está descargado) y repetimos.
+// Si lo que pasa es que deja de responder (TIEMPO_AGOTADO) con la gráfica, pasamos al procesador.
+const GRAFICA_PERDIDA = /device.{0,3}is lost|device lost|mapAsync|DXGI_ERROR|GPUDevice|TIEMPO_AGOTADO/i
+
+async function completar(texto: string, aleatorio = false, maxTokens = 350): Promise<string> {
+  try {
+    return await pedir({ tipo: 'completar', texto, aleatorio, maxTokens }, inactividad())
   } catch (e) {
     const mensaje = String((e as Error).message)
     if (!ultimaCarga || !GRAFICA_PERDIDA.test(mensaje)) throw e
+    const colgado = mensaje.includes(SIN_RESPUESTA)
     console.warn('El modelo ha dejado de responder o la gráfica se ha reiniciado: recargando el modelo', e)
-    const { clave, webgpu, avance } = ultimaCarga
+    const { clave, avance } = ultimaCarga
+    const conGrafica = motor === 'webgpu'
     reiniciarHilo()
-    avance(
-      mensaje.includes(SIN_RESPUESTA)
-        ? 'El modelo no respondía. Reiniciándolo…'
-        : 'La tarjeta gráfica se ha reiniciado. Recargando el modelo…',
-    )
-    await prepararModelo(clave, webgpu, avance)
-    return await pedir({ tipo: 'completar', texto, aleatorio, maxTokens }, limite)
+    if (colgado && conGrafica) {
+      renunciarAGrafica()
+      avance('La tarjeta gráfica no respondía. Cambiando al procesador (más lento)…')
+    } else {
+      avance(colgado ? 'El modelo no respondía. Reiniciándolo…' : 'La tarjeta gráfica se ha reiniciado. Recargando el modelo…')
+    }
+    await prepararModelo(clave, conGrafica && !colgado, avance)
+    return await pedir({ tipo: 'completar', texto, aleatorio, maxTokens }, inactividad())
   }
 }
 
@@ -238,6 +303,8 @@ function paraElAlumno(texto: string): string {
     .replace(/\s*,?\s*\b(en|de) (la|las) frases? \[?\d+\]?(\s*(y|a)\s*\[?\d+\]?)?/gi, '')
     .replace(/\s*\(?\s*frases? \[?\d+\]?\s*\)?/gi, '')
     .replace(/\b(según|en|de) (el|este) (texto|fragmento)\b/gi, (_m, prep: string) => `${prep} el vídeo`)
+    // El modelo pequeño a veces remata la afirmación con "…, por lo que la respuesta es afirmativa".
+    .replace(/\s*,?\s*(por lo que|así que|por tanto,?|luego)\s+(la respuesta|esto|esta afirmación|la afirmación)\s+es\s+(afirmativa|negativa|verdadera|falsa|correcta|incorrecta|cierta)\b/gi, '')
     .replace(/\s+([?.,;:])/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim()
