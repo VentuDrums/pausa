@@ -5,5 +5,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
   "ai": { "binding": "AI" },
-  "observability": { "enabled": true }
+  // Privacidad: sin registros de peticiones ni de consola (Workers Logs) y sin envío de registros a terceros.
+  "observability": { "enabled": false, "logs": { "enabled": false, "invocation_logs": false } },
+  "logpush": false
 }
