@@ -31,6 +31,11 @@ export function Ver({ codigo }: { codigo: string }) {
 
 type Fase = 'datos' | 'reanudar' | 'viendo' | 'informe'
 
+/** Móviles y tabletas: allí el vídeo se ve pequeño, así que empieza directamente a pantalla completa. */
+function esTactil() {
+  return window.matchMedia?.('(pointer: coarse)').matches ?? false
+}
+
 /**
  * Desplaza la página para que se vea `el`, con animación. Si al poco sigue fuera de la pantalla
  * (algunos navegadores no animan en segundo plano o con ahorro de energía), salta directamente.
@@ -75,6 +80,56 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   const tarjeta = useRef<HTMLDivElement>(null)
   const botonSeguir = useRef<HTMLButtonElement>(null)
 
+  // Pantalla completa propia: ocupa la pantalla el vídeo CON sus preguntas (la del reproductor las taparía).
+  // Donde el navegador no la permite (iPhone), el marco ocupa igualmente toda la pantalla.
+  const marco = useRef<HTMLDivElement>(null)
+  const [pantallaCompleta, setPantallaCompleta] = useState(false)
+  const pantallaCompletaRef = useRef(false)
+  pantallaCompletaRef.current = pantallaCompleta
+
+  const entrarPantallaCompleta = useCallback(async () => {
+    const el = marco.current as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> }) | null
+    if (!el) return
+    setPantallaCompleta(true)
+    try {
+      if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' })
+      else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
+      // En móviles, mejor en horizontal (solo funciona en pantalla completa y no en todos los navegadores).
+      const orientacion = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
+      await orientacion.lock?.('landscape').catch(() => {})
+    } catch {
+      /* sin pantalla completa del navegador: se queda la que ocupa toda la ventana */
+    }
+  }, [])
+
+  const salirPantallaCompleta = useCallback(() => {
+    setPantallaCompleta(false)
+    try { screen.orientation.unlock() } catch { /* no disponible */ }
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }, [])
+
+  // Si se sale con la tecla Esc o el gesto del móvil, lo reflejamos.
+  useEffect(() => {
+    const alCambiar = () => {
+      if (!document.fullscreenElement && pantallaCompletaRef.current) setPantallaCompleta(false)
+    }
+    document.addEventListener('fullscreenchange', alCambiar)
+    return () => document.removeEventListener('fullscreenchange', alCambiar)
+  }, [])
+
+  // Mientras ocupa toda la pantalla, la página de debajo no se desplaza.
+  useEffect(() => {
+    if (!pantallaCompleta) return
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = antes }
+  }, [pantallaCompleta])
+
+  // Al terminar, se sale de la pantalla completa para ver el informe.
+  useEffect(() => {
+    if (fase === 'informe' && pantallaCompletaRef.current) salirPantallaCompleta()
+  }, [fase, salirPantallaCompleta])
+
   const preguntas = actividad.preguntas
   const fuente = useMemo(() => fuenteDeActividad(actividad), [actividad])
   const pendiente = useCallback(
@@ -83,12 +138,11 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   )
 
   const abrir = useCallback((p: Pregunta) => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     setActiva(p)
     setElegida(null)
     setComprobada(false)
     // La pregunta sube a lo alto de la pantalla: así caben las opciones, la corrección y el botón de seguir.
-    setTimeout(() => mostrar(tarjeta.current, 'start'), 0)
+    if (!pantallaCompletaRef.current) setTimeout(() => mostrar(tarjeta.current, 'start'), 0)
   }, [])
 
   // Guarda el intento en curso (en este navegador) para poder retomarlo si se recarga la página.
@@ -146,12 +200,14 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     tiempoRef.current = 0
     setFase('viendo')
     reproductor.current?.playVideo()
+    if (esTactil()) entrarPantallaCompleta()
   }
 
   /** Retoma el intento a medias: mismas respuestas (ya no se pueden cambiar) y el vídeo donde lo dejó. */
   function reanudar() {
     const r = reproductor.current
     setFase('viendo')
+    if (esTactil()) entrarPantallaCompleta()
     if (!r) return
     r.seekTo(Math.max(0, tiempoRef.current - 2), true)
     r.playVideo()
@@ -186,6 +242,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     setComprobada(true)
     // Que el botón de seguir quede a la vista sin tener que bajar (y listo para pulsar Intro).
     setTimeout(() => {
+      // Desplaza la página o, a pantalla completa, el cuadro flotante.
       mostrar(botonSeguir.current, 'nearest')
       botonSeguir.current?.focus({ preventScroll: true })
     }, 0)
@@ -226,6 +283,67 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   }
   const numeroActiva = activa ? preguntas.indexOf(activa) + 1 : 0
   const quedanDespues = activa ? preguntas.some((p) => p.id !== activa.id && respuestas[p.id] === undefined) : false
+  const contenidoPregunta = activa && (
+    <>
+          {aviso && <p className="mb-4 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">{aviso}</p>}
+          <p className="text-sm font-bold text-tinta-suave">
+            Pregunta {numeroActiva} de {preguntas.length}
+            {activa.tipo === 'vf' && ' · ¿Verdadero o falso?'}
+          </p>
+          <h2 className="mt-2 text-xl font-bold leading-snug sm:text-2xl">{activa.enunciado}</h2>
+
+          <div role="radiogroup" aria-label="Respuestas" className={`mt-5 grid gap-2.5 ${activa.tipo === 'vf' ? 'grid-cols-2' : 'sm:grid-cols-2'}`}>
+            {activa.opciones.map((o, i) => {
+              const esCorrecta = i === activa.correcta
+              const esElegida = i === elegida
+              let estilo = 'border-linea hover:border-tinta/50'
+              if (!comprobada && esElegida) estilo = 'border-boli bg-boli/10'
+              if (comprobada && esCorrecta) estilo = 'border-verde bg-verde-claro'
+              if (comprobada && esElegida && !esCorrecta) estilo = 'border-rojo bg-rojo-claro'
+              if (comprobada && !esCorrecta && !esElegida) estilo = 'border-linea opacity-60'
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  role="radio"
+                  aria-checked={esElegida}
+                  disabled={comprobada}
+                  onClick={() => setElegida(i)}
+                  className={`flex min-h-14 items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-base font-bold transition-colors ${estilo}`}
+                >
+                  {activa.tipo === 'test' && (
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-papel text-sm">{'ABCD'[i]}</span>
+                  )}
+                  <span className={activa.tipo === 'vf' ? 'w-full text-center' : ''}>{o}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {!comprobada ? (
+            <button type="button" className="boton boton-principal mt-6 w-full sm:w-auto" disabled={elegida === null} onClick={comprobar}>
+              Comprobar
+            </button>
+          ) : (
+            <div className="aparecer mt-6" aria-live="polite">
+              {elegida === activa.correcta ? (
+                <p className="font-display text-xl font-bold text-verde">¡Correcto!</p>
+              ) : (
+                <div>
+                  <p className="font-display text-xl font-bold text-rojo">No es correcto</p>
+                  <p className="mt-1">
+                    La respuesta correcta es: <strong>{activa.opciones[activa.correcta]}</strong>
+                  </p>
+                </div>
+              )}
+              {activa.explicacion && <p className="mt-2 leading-relaxed text-tinta-suave">{activa.explicacion}</p>}
+              <button ref={botonSeguir} type="button" className="boton boton-principal mt-5 w-full scroll-mb-4 sm:w-auto" onClick={continuar}>
+                {reproductor.current?.getPlayerState() === ESTADO_YT.TERMINADO && !quedanDespues ? 'Ver mis resultados' : 'Seguir viendo el vídeo'}
+              </button>
+            </div>
+          )}
+    </>
+  )
 
   // Solo un intento y ya lo hizo: se le enseña su informe de entonces, no el vídeo.
   if (bloqueada) {
@@ -254,7 +372,14 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
 
       {/* En móvil el formulario va debajo del vídeo (no cabe encima); desde tableta, encima del vídeo. */}
       <div className="relative mt-5">
-        <div className="relative aspect-video overflow-hidden rounded-xl bg-tinta">
+        <div
+          ref={marco}
+          className={pantallaCompleta ? 'fixed inset-0 z-50 flex items-center justify-center bg-black' : 'relative'}
+        >
+        <div
+          className={`relative aspect-video overflow-hidden bg-tinta ${pantallaCompleta ? 'w-full' : 'rounded-xl'}`}
+          style={pantallaCompleta ? { maxWidth: 'calc(100dvh * 16 / 9)' } : undefined}
+        >
           <Reproductor
             fuente={fuente}
             modoAlumno
@@ -267,12 +392,33 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
           />
           {(fase === 'datos' || fase === 'reanudar' || activa) && (
             <div className="absolute inset-0 flex items-center justify-center bg-tinta/80 p-4 backdrop-blur-[2px]">
-              {activa && (
+              {activa && !pantallaCompleta && (
                 <p className="hidden text-center font-display text-lg font-bold text-papel sm:block">
                   Responde la pregunta para seguir viendo el vídeo
                 </p>
               )}
             </div>
+          )}
+        </div>
+          {/* A pantalla completa, la pregunta flota sobre el vídeo (con su propio desplazamiento si no cabe). */}
+          {pantallaCompleta && activa && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center p-3 sm:p-6">
+              <div
+                className="aparecer max-h-full w-full max-w-2xl overflow-y-auto overscroll-contain rounded-2xl bg-hoja p-4 shadow-2xl sm:p-5 [&_h2]:!mt-1 [&_h2]:!text-lg [&_h2]:sm:!text-xl [&_[role=radio]]:!min-h-11 [&_[role=radio]]:!py-2 [&_[role=radio]]:!text-sm [&_[role=radiogroup]]:!mt-3 [&_[role=radiogroup]]:!gap-2 [&_.boton]:!mt-3"
+                ref={tarjeta}
+              >
+                {contenidoPregunta}
+              </div>
+            </div>
+          )}
+          {pantallaCompleta && (
+            <button
+              type="button"
+              onClick={salirPantallaCompleta}
+              className="absolute right-2 top-2 z-20 rounded-lg bg-black/60 px-3 py-1.5 text-sm font-bold text-white hover:bg-black/80"
+            >
+              Salir de pantalla completa
+            </button>
           )}
         </div>
         {fase === 'reanudar' && enCurso && (
@@ -332,6 +478,14 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
         )}
       </div>
 
+      {fase === 'viendo' && !pantallaCompleta && (
+        <div className="mt-2 flex justify-end">
+          <button type="button" className="boton-texto" onClick={entrarPantallaCompleta}>
+            <span aria-hidden="true">⛶</span> Pantalla completa
+          </button>
+        </div>
+      )}
+
       <div className="mt-3">
         <LineaTiempo
           duracion={duracion}
@@ -342,65 +496,9 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
         />
       </div>
 
-      {activa && (
+      {activa && !pantallaCompleta && (
         <div ref={tarjeta} className="aparecer mt-5 scroll-mt-4 rounded-2xl border-2 border-tinta bg-hoja p-5 shadow-[5px_5px_0_var(--color-tinta)] sm:p-7">
-          {aviso && <p className="mb-4 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">{aviso}</p>}
-          <p className="text-sm font-bold text-tinta-suave">
-            Pregunta {numeroActiva} de {preguntas.length}
-            {activa.tipo === 'vf' && ' · ¿Verdadero o falso?'}
-          </p>
-          <h2 className="mt-2 text-xl font-bold leading-snug sm:text-2xl">{activa.enunciado}</h2>
-
-          <div role="radiogroup" aria-label="Respuestas" className={`mt-5 grid gap-2.5 ${activa.tipo === 'vf' ? 'grid-cols-2' : 'sm:grid-cols-2'}`}>
-            {activa.opciones.map((o, i) => {
-              const esCorrecta = i === activa.correcta
-              const esElegida = i === elegida
-              let estilo = 'border-linea hover:border-tinta/50'
-              if (!comprobada && esElegida) estilo = 'border-boli bg-boli/10'
-              if (comprobada && esCorrecta) estilo = 'border-verde bg-verde-claro'
-              if (comprobada && esElegida && !esCorrecta) estilo = 'border-rojo bg-rojo-claro'
-              if (comprobada && !esCorrecta && !esElegida) estilo = 'border-linea opacity-60'
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  role="radio"
-                  aria-checked={esElegida}
-                  disabled={comprobada}
-                  onClick={() => setElegida(i)}
-                  className={`flex min-h-14 items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-base font-bold transition-colors ${estilo}`}
-                >
-                  {activa.tipo === 'test' && (
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-papel text-sm">{'ABCD'[i]}</span>
-                  )}
-                  <span className={activa.tipo === 'vf' ? 'w-full text-center' : ''}>{o}</span>
-                </button>
-              )
-            })}
-          </div>
-
-          {!comprobada ? (
-            <button type="button" className="boton boton-principal mt-6 w-full sm:w-auto" disabled={elegida === null} onClick={comprobar}>
-              Comprobar
-            </button>
-          ) : (
-            <div className="aparecer mt-6" aria-live="polite">
-              {elegida === activa.correcta ? (
-                <p className="font-display text-xl font-bold text-verde">¡Correcto!</p>
-              ) : (
-                <div>
-                  <p className="font-display text-xl font-bold text-rojo">No es correcto</p>
-                  <p className="mt-1">
-                    La respuesta correcta es: <strong>{activa.opciones[activa.correcta]}</strong>
-                  </p>
-                </div>
-              )}
-              {activa.explicacion && <p className="mt-2 leading-relaxed text-tinta-suave">{activa.explicacion}</p>}
-              <button ref={botonSeguir} type="button" className="boton boton-principal mt-5 w-full scroll-mb-4 sm:w-auto" onClick={continuar}>
-                {reproductor.current?.getPlayerState() === ESTADO_YT.TERMINADO && !quedanDespues ? 'Ver mis resultados' : 'Seguir viendo el vídeo'}
-              </button>
-            </div>
-          )}
+          {contenidoPregunta}
         </div>
       )}
     </div>
