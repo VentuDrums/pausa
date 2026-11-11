@@ -31,6 +31,19 @@ export function Ver({ codigo }: { codigo: string }) {
 
 type Fase = 'datos' | 'reanudar' | 'viendo' | 'informe'
 
+/**
+ * Desplaza la página para que se vea `el`, con animación. Si al poco sigue fuera de la pantalla
+ * (algunos navegadores no animan en segundo plano o con ahorro de energía), salta directamente.
+ */
+function mostrar(el: HTMLElement | null, block: ScrollLogicalPosition) {
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block })
+  setTimeout(() => {
+    const r = el.getBoundingClientRect()
+    if (r.top < 0 || r.bottom > window.innerHeight) el.scrollIntoView({ block })
+  }, 700)
+}
+
 function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   // Intentos anteriores en este navegador (solo se guardan aquí, en el dispositivo del alumno).
   const previos = useMemo(() => leerIntentos(id), [id])
@@ -60,6 +73,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
   const faseRef = useRef(fase)
   faseRef.current = fase
   const tarjeta = useRef<HTMLDivElement>(null)
+  const botonSeguir = useRef<HTMLButtonElement>(null)
 
   const preguntas = actividad.preguntas
   const fuente = useMemo(() => fuenteDeActividad(actividad), [actividad])
@@ -73,7 +87,8 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     setActiva(p)
     setElegida(null)
     setComprobada(false)
-    requestAnimationFrame(() => tarjeta.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+    // La pregunta sube a lo alto de la pantalla: así caben las opciones, la corrección y el botón de seguir.
+    setTimeout(() => mostrar(tarjeta.current, 'start'), 0)
   }, [])
 
   // Guarda el intento en curso (en este navegador) para poder retomarlo si se recarga la página.
@@ -169,6 +184,11 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
     setRespuestas((r) => ({ ...r, [activa.id]: elegida }))
     respuestasRef.current = { ...respuestasRef.current, [activa.id]: elegida }
     setComprobada(true)
+    // Que el botón de seguir quede a la vista sin tener que bajar (y listo para pulsar Intro).
+    setTimeout(() => {
+      mostrar(botonSeguir.current, 'nearest')
+      botonSeguir.current?.focus({ preventScroll: true })
+    }, 0)
   }
 
   function continuar() {
@@ -376,7 +396,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
                 </div>
               )}
               {activa.explicacion && <p className="mt-2 leading-relaxed text-tinta-suave">{activa.explicacion}</p>}
-              <button type="button" className="boton boton-principal mt-5 w-full sm:w-auto" onClick={continuar}>
+              <button ref={botonSeguir} type="button" className="boton boton-principal mt-5 w-full scroll-mb-4 sm:w-auto" onClick={continuar}>
                 {reproductor.current?.getPlayerState() === ESTADO_YT.TERMINADO && !quedanDespues ? 'Ver mis resultados' : 'Seguir viendo el vídeo'}
               </button>
             </div>
@@ -390,7 +410,6 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
 function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string }) {
   const { total, aciertos, fallos, nota } = calcularNota(resultado)
   const { actividad, respuestas } = resultado
-  const [copiado, setCopiado] = useState(false)
   const [informeCopiado, setInformeCopiado] = useState(false)
 
   return (
@@ -491,28 +510,6 @@ function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string })
           )
         })}
       </ol>
-
-      <section className="mt-10 rounded-xl border-2 border-linea p-4">
-        <h2 className="font-bold">Código de comprobación</h2>
-        <p className="mt-1 text-sm text-tinta-suave">
-          Va incluido en el correo y en el PDF. Sirve para que tu profesor o profesora compruebe que el informe no se ha cambiado.
-        </p>
-        <p className="mt-2 break-all rounded-lg bg-papel p-2 font-mono text-xs">{resultado.codigo}</p>
-        <button
-          type="button"
-          className="boton-texto mt-2"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(resultado.codigo)
-              setCopiado(true)
-            } catch {
-              setCopiado(false)
-            }
-          }}
-        >
-          {copiado ? 'Copiado' : 'Copiar el código'}
-        </button>
-      </section>
     </div>
   )
 }
