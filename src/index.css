@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@theme {
+  --color-papel: #eef2f0;
+  --color-hoja: #fbfcfb;
+  --color-tinta: #1b2b26;
+  --color-tinta-suave: #4d625b;
+  --color-linea: #cad6d1;
+  --color-boli: #2f5bea;
+  --color-boli-oscuro: #2147c4;
+  --color-rojo: #c8392b;
+  --color-rojo-claro: #fbe9e6;
+  --color-verde: #1e7d4f;
+  --color-verde-claro: #e3f3ea;
+  --color-fosforito: #f4c430;
+  --color-fosforito-claro: #fcefc0;
+
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: var(--color-papel);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--color-papel);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+p { text-wrap: pretty; }
+
+:focus-visible {
+  outline: 3px solid var(--color-boli);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@utility boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  font-weight: 700;
+  transition: background-color 0.15s, border-color 0.15s;
+  &:disabled { cursor: not-allowed; opacity: 0.5; }
+}
+
+@utility boton-principal {
+  background: var(--color-boli);
+  color: white;
+  &:hover:not(:disabled) { background: var(--color-boli-oscuro); }
+}
+
+@utility boton-secundario {
+  border: 2px solid color-mix(in srgb, var(--color-tinta) 15%, transparent);
+  background: var(--color-hoja);
+  color: var(--color-tinta);
+  &:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-tinta) 40%, transparent); }
+}
+
+@utility boton-texto {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-boli);
+  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-boli) 10%, transparent); }
+  &:disabled { opacity: 0.4; }
+}
+
+@utility campo {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 2px solid var(--color-linea);
+  background: var(--color-hoja);
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  color: var(--color-tinta);
+  &::placeholder { color: color-mix(in srgb, var(--color-tinta-suave) 65%, transparent); }
+  &:focus { border-color: var(--color-boli); outline: none; }
+}
+
+@utility etiqueta {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-tinta);
+}
+
+/* El trazo de fosforito: ligeramente inclinado e irregular, como pintado a mano */
+.trazo-fosforito {
+  background: var(--color-fosforito);
+  border-radius: 3px 6px 4px 7px;
+  transform: skewX(-10deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes aparecer {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.aparecer { animation: aparecer 0.25s ease-out both; }
