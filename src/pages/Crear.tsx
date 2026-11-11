@@ -9,7 +9,7 @@ import { NOMBRE_SERVICIO, leerEnlaceVideo } from '../lib/video'
 import { leerTranscripcion } from '../lib/transcripcion'
 import { extraerAudio, transcribir } from '../lib/whisper'
 import {
-  MODELOS, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, nubeDisponibleHoy, prepararIA,
+  MODELOS, NIVELES, type Nivel, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, nubeDisponibleHoy, prepararIA,
   type ClaveModelo, type InfoDispositivo,
 } from '../lib/ia'
 import { analizarDispositivo, type Analisis } from '../lib/dispositivo'
@@ -61,6 +61,18 @@ export function Crear() {
     cantidadSugerida(inicial.segmentos[inicial.segmentos.length - 1]?.fin ?? 0),
   )
   const [tipos, setTipos] = useState<Record<TipoPregunta, boolean>>({ test: true, vf: true })
+  // Etapa de los alumnos: la IA adapta el lenguaje y la dificultad de las preguntas. Se recuerda para la próxima vez.
+  const [nivel, setNivel] = useState<Nivel>(() => {
+    try {
+      const guardado = localStorage.getItem('pausa-nivel-v1')
+      return NIVELES.some((n) => n.clave === guardado) ? (guardado as Nivel) : 'eso'
+    } catch {
+      return 'eso'
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('pausa-nivel-v1', nivel) } catch { /* sin almacenamiento */ }
+  }, [nivel])
   const [dispositivo, setDispositivo] = useState<InfoDispositivo | null>(null)
   const [analisis, setAnalisis] = useState<Analisis | null>(leerAnalisisGuardado)
   const [analizando, setAnalizando] = useState(false)
@@ -281,6 +293,7 @@ export function Crear() {
         segmentos,
         cantidad,
         tipos: [...tiposElegidos],
+        nivel,
         alAvanzar: (texto, proporcion) => setTrabajo({ texto, proporcion }),
         alCrear: (nueva) => setPreguntas((prev) => [...prev, nueva].sort((a, b) => a.tiempo - b.tiempo)),
         cancelado: () => cancelar.current,
@@ -307,7 +320,7 @@ export function Crear() {
       setTrabajo(null)
       // intento 1 = con algo de aleatoriedad, para que salga una pregunta distinta
       const foco = p.foco ?? Math.floor(p.fuente.length / 2)
-      const nueva = await generarPregunta(p.fuente, foco, p.tipo, Math.random() < 0.5, 1)
+      const nueva = await generarPregunta(p.fuente, foco, p.tipo, Math.random() < 0.5, 1, nivel)
       setPreguntas((prev) => prev.map((x) => (x.id === p.id ? nueva : x)).sort((a, b) => a.tiempo - b.tiempo))
       setSeleccionada(nueva.id)
     } catch (e) {
@@ -695,6 +708,25 @@ export function Crear() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <p className="etiqueta" id="etiqueta-nivel">Nivel de los alumnos</p>
+                <div role="radiogroup" aria-labelledby="etiqueta-nivel" className="grid gap-2 sm:grid-cols-3">
+                  {NIVELES.map((n) => (
+                    <label
+                      key={n.clave}
+                      className={`cursor-pointer rounded-xl border-2 p-3 ${nivel === n.clave ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}
+                    >
+                      <input type="radio" name="nivel" className="sr-only" checked={nivel === n.clave} onChange={() => setNivel(n.clave)} />
+                      <span className="block font-bold">{n.nombre}</span>
+                      <span className="mt-0.5 block text-sm text-tinta-suave">{n.edades}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-sm text-tinta-suave">
+                  La IA adapta el vocabulario, el tipo de pregunta y lo difíciles que son las respuestas incorrectas.
+                </p>
               </div>
 
               <div className="flex flex-wrap gap-6">

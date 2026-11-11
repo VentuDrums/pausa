@@ -387,9 +387,49 @@ function numerar(segmentos: Segmento[]) {
   return texto
 }
 
-function instrucciones(contexto: Segmento[], foco: number) {
+/* ---------- Nivel educativo ---------- */
+
+export type Nivel = 'primaria' | 'eso' | 'bachillerato'
+
+export const NIVELES: { clave: Nivel; nombre: string; edades: string }[] = [
+  { clave: 'primaria', nombre: 'Primaria', edades: '6 a 12 años' },
+  { clave: 'eso', nombre: 'ESO', edades: '12 a 16 años' },
+  { clave: 'bachillerato', nombre: 'Bachillerato', edades: '16 a 18 años' },
+]
+
+/** Cómo debe escribir la IA para cada etapa. */
+const GUIA_NIVEL: Record<Nivel, { profesor: string; reglas: string }> = {
+  primaria: {
+    profesor: 'un maestro de Educación Primaria (alumnos de 6 a 12 años)',
+    reglas:
+      '- Usa palabras sencillas y frases cortas, como hablaría un maestro a niños.\n' +
+      '- Pregunta por un dato concreto que se dice claramente en el vídeo (qué, quién, cuándo, dónde, cómo se llama).\n' +
+      '- Las respuestas son cortas (unas pocas palabras). Las incorrectas son creíbles pero claramente distintas de la correcta.\n' +
+      '- La explicación es una frase sencilla y cercana, sin palabras técnicas.',
+  },
+  eso: {
+    profesor: 'un profesor de Educación Secundaria Obligatoria (alumnos de 12 a 16 años)',
+    reglas:
+      '- Usa un lenguaje claro y el vocabulario propio de la materia que aparece en el vídeo.\n' +
+      '- Pregunta por un dato importante o por su sentido (qué es, por qué ocurre, para qué sirve).\n' +
+      '- Las respuestas incorrectas son creíbles y del mismo tipo que la correcta.\n' +
+      '- La explicación dice en una frase por qué la respuesta correcta lo es.',
+  },
+  bachillerato: {
+    profesor: 'un profesor de Bachillerato (alumnos de 16 a 18 años)',
+    reglas:
+      '- Usa el vocabulario académico de la materia con precisión.\n' +
+      '- Mejor que un dato suelto, pregunta por la comprensión: causas y consecuencias, relaciones entre ideas, ' +
+      'comparaciones o el significado de un concepto que se explica en el vídeo. La respuesta tiene que estar en el vídeo.\n' +
+      '- Las respuestas incorrectas son sutiles: errores o confusiones habituales sobre el tema, no opciones absurdas.\n' +
+      '- La explicación es precisa y aclara el concepto en una o dos frases.',
+  },
+}
+
+function instrucciones(contexto: Segmento[], foco: number, nivel: Nivel) {
+  const guia = GUIA_NIVEL[nivel]
   return (
-    'Eres un profesor de secundaria que prepara preguntas de comprensión sobre un vídeo educativo. ' +
+    `Eres ${guia.profesor} que prepara preguntas de comprensión sobre un vídeo educativo. ` +
     'Escribe en español correcto. Usa solo información del fragmento.\n\n' +
     `Fragmento del vídeo, frase a frase:\n${numerar(contexto)}\n\n` +
     `Crea una pregunta tipo test sobre el dato importante que se explica en la frase [${foco + 1}] ` +
@@ -397,8 +437,8 @@ function instrucciones(contexto: Segmento[], foco: number) {
     'Responde solo con un objeto JSON con este formato:\n' +
     `{"frase": ${foco + 1}, "pregunta": "¿...?", "correcta": "...", "incorrecta1": "...", "incorrecta2": "...", "incorrecta3": "...", "explicacion": "..."}\n` +
     '- "frase" es el NÚMERO de la frase donde termina de decirse el dato.\n' +
-    '- Las tres respuestas incorrectas son creíbles, del mismo tipo que la correcta y distintas entre sí.\n' +
-    '- "explicacion" explica en una frase por qué la respuesta correcta lo es.\n' +
+    '- Las tres respuestas incorrectas son distintas entre sí y ninguna es también correcta.\n' +
+    `${guia.reglas}\n` +
     '- La pregunta la lee un alumno que ha visto el vídeo: no menciones números de frase, ni "el texto" ni "el fragmento".'
   )
 }
@@ -429,14 +469,19 @@ function paraElAlumno(texto: string): string {
 
 type Borrador = { indice: number; pregunta: string; correcta: string; incorrectas: string[]; explicacion: string }
 
-async function borradorTest(contexto: Segmento[], foco: number, aleatorio: boolean): Promise<Borrador> {
-  const datos = leerJson(await completar(instrucciones(contexto, foco), aleatorio))
+async function borradorTest(contexto: Segmento[], foco: number, aleatorio: boolean, nivel: Nivel): Promise<Borrador> {
+  const datos = leerJson(await completar(instrucciones(contexto, foco, nivel), aleatorio))
   const pregunta = paraElAlumno(String(datos.pregunta ?? ''))
-  const correcta = String(datos.correcta ?? '').trim()
+  // Las opciones siempre empiezan en mayúscula ("la reconquista" → "La reconquista").
+  const opcion = (x: unknown) => {
+    const t = String(x ?? '').trim()
+    return t.charAt(0).toLocaleUpperCase('es') + t.slice(1)
+  }
+  const correcta = opcion(datos.correcta)
   const vistas = new Set([normalizar(correcta)])
   const incorrectas: string[] = []
   for (const x of [datos.incorrecta1, datos.incorrecta2, datos.incorrecta3]) {
-    const t = String(x ?? '').trim()
+    const t = opcion(x)
     if (t && !vistas.has(normalizar(t))) {
       vistas.add(normalizar(t))
       incorrectas.push(t)
@@ -458,6 +503,7 @@ async function borradorTest(contexto: Segmento[], foco: number, aleatorio: boole
 /** Convierte "pregunta + respuesta" en una afirmación. Así sabemos con certeza si es verdadera o falsa. */
 async function afirmacion(pregunta: string, respuesta: string): Promise<string> {
   const texto = await completar(
+    // El nivel ya se nota en la pregunta de la que sale. (Si se le añade aquí, el modelo lo copia en la frase.)
     'Convierte esta pregunta y su respuesta en una sola frase afirmativa, en español, sin añadir nada más.\n' +
       `Pregunta: ${pregunta}\nRespuesta: ${respuesta}\nFrase afirmativa:`,
     false,
@@ -478,8 +524,9 @@ export async function generarPregunta(
   tipo: TipoPregunta,
   verdadera: boolean,
   intento = 0,
+  nivel: Nivel = 'eso',
 ): Promise<PreguntaEditable> {
-  const b = await borradorTest(contexto, foco, intento > 0)
+  const b = await borradorTest(contexto, foco, intento > 0, nivel)
   const tiempo = contexto[b.indice].fin + 1
   const base = { id: idAleatorio(), tiempo, fuente: contexto, foco }
 
@@ -584,6 +631,7 @@ type OpcionesGeneracion = {
   segmentos: Segmento[]
   cantidad: number
   tipos: TipoPregunta[]
+  nivel: Nivel
   alAvanzar: (texto: string, proporcion?: number) => void
   alCrear: (p: PreguntaEditable) => void
   cancelado: () => boolean
@@ -593,7 +641,7 @@ type OpcionesGeneracion = {
  * Crea exactamente `cantidad` preguntas (si el vídeo da para ello), colocadas donde se explican los datos
  * más importantes y repartidas por el vídeo. Si un dato no da para una buena pregunta, pasa al siguiente.
  */
-export async function generarPreguntas({ segmentos, cantidad, tipos, alAvanzar, alCrear, cancelado }: OpcionesGeneracion) {
+export async function generarPreguntas({ segmentos, cantidad, tipos, nivel, alAvanzar, alCrear, cancelado }: OpcionesGeneracion) {
   const candidatos = await analizarTranscripcion(
     segmentos,
     (hecho, total) => alAvanzar(`Leyendo el vídeo para encontrar los datos importantes (${hecho} de ${total})`, (hecho / total) * 0.3),
@@ -638,7 +686,7 @@ export async function generarPreguntas({ segmentos, cantidad, tipos, alAvanzar, 
     let conseguida = false
     for (let intento = 0; intento < 2 && !cancelado() && !conseguida; intento++) {
       try {
-        const p = await generarPregunta(contexto, foco, tipo, Math.random() < 0.5, intento)
+        const p = await generarPregunta(contexto, foco, tipo, Math.random() < 0.5, intento, nivel)
         elegidos.push(candidato.indice)
         creadas++
         alCrear(p)
