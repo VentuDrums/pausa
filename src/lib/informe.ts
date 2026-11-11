@@ -50,7 +50,7 @@ export function enlaceCorreo(r: Resultado): string {
       return `${i + 1}. [${bien ? 'BIEN' : 'MAL'}] ${recortar(p.enunciado, 90)} -> ${recortar(respuesta, 50)}`
     }),
     '',
-    r.intentos.length > 1 ? `Intentos en este dispositivo (${r.intentos.length}):` : 'Intentos en este dispositivo: 1',
+    r.intentos.length > 1 ? `Intentos (${r.intentos.length}):` : 'Intentos: 1',
     ...(r.intentos.length > 1 ? lineasIntentos(r.intentos) : []),
     '',
     'Código de comprobación (el profesor puede verificarlo en Pausa):',
@@ -156,7 +156,7 @@ export async function crearPdf(r: Resultado): Promise<{ doc: JsPDF; nombreArchiv
   doc.setFontSize(11)
   doc.setTextColor(27, 43, 38)
   doc.text(
-    r.intentos.length > 1 ? `Intentos en este dispositivo: ${r.intentos.length}` : 'Intentos en este dispositivo: 1',
+    r.intentos.length > 1 ? `Intentos: ${r.intentos.length}` : 'Intentos: 1',
     margen,
     y + 2,
   )

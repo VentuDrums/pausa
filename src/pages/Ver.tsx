@@ -295,7 +295,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
               ) : (
                 intentos.length > 0 && (
                   <p className="mt-2 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">
-                    Ya has empezado esta actividad {intentos.length === 1 ? 'una vez' : `${intentos.length} veces`} en este dispositivo. Tu
+                    Ya has empezado esta actividad {intentos.length === 1 ? 'una vez' : `${intentos.length} veces`}. Tu
                     informe incluirá todos los intentos, también los que dejaste sin terminar.
                   </p>
                 )
@@ -429,7 +429,7 @@ function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string })
 
       {resultado.intentos.length > 1 && (
         <section className="mt-8">
-          <h2 className="text-lg font-bold">Tus intentos en este dispositivo</h2>
+          <h2 className="text-lg font-bold">Tus intentos</h2>
           <p className="mt-1 text-sm text-tinta-suave">Tu profesor o profesora los verá todos en el informe.</p>
           <ul className="mt-3 space-y-1">
             {lineasIntentos(resultado.intentos).map((l) => (
