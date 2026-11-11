@@ -24,7 +24,10 @@ export type Pregunta = {
 /** Lo que viaja dentro del enlace que reciben los alumnos. */
 export type Actividad = {
   v: 1
+  /** ID del vídeo de YouTube ('' si el vídeo es un archivo en la nube del profesor). */
   videoId: string
+  /** Vídeo propio en Drive, Dropbox, OneDrive o enlace directo (ya convertido para reproducirse). */
+  archivo?: { url: string; servicio: 'drive' | 'dropbox' | 'onedrive' | 'directo' }
   titulo: string
   emailProfesor: string
   preguntas: Pregunta[]

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Marca } from '../components/Marca'
-import { ReproductorYouTube } from '../components/ReproductorYouTube'
+import { Reproductor } from '../components/Reproductor'
+import { GuiasVideoPropio } from '../components/GuiasVideoPropio'
 import { LineaTiempo } from '../components/LineaTiempo'
 import { EditorPregunta } from '../components/EditorPregunta'
-import { extraerIdYouTube, type ReproductorYT } from '../lib/youtube'
+import { type ReproductorYT } from '../lib/youtube'
+import { NOMBRE_SERVICIO, leerEnlaceVideo } from '../lib/video'
 import { leerTranscripcion } from '../lib/transcripcion'
 import { extraerAudio, transcribir } from '../lib/whisper'
 import {
@@ -81,7 +83,8 @@ export function Crear() {
   const [duracion, setDuracion] = useState(0)
   const cancelar = useRef(false)
 
-  const videoId = extraerIdYouTube(url)
+  const fuente = useMemo(() => leerEnlaceVideo(url), [url])
+  const esArchivo = fuente?.tipo === 'archivo'
   const duracionTotal = duracion || segmentos[segmentos.length - 1]?.fin || 0
   const ocupado = trabajo !== null || regenerando !== null
 
@@ -148,7 +151,7 @@ export function Crear() {
 
   useEffect(() => {
     setEnlace(null)
-  }, [preguntas, titulo, email, videoId])
+  }, [preguntas, titulo, email, url])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -186,6 +189,31 @@ export function Crear() {
     setTextoPegado(await archivo.text())
   }
 
+  // Con un vídeo propio no hay transcripción de YouTube: se abre directamente la pestaña de escuchar el vídeo.
+  useEffect(() => {
+    if (esArchivo && modoTexto === 'youtube') setModoTexto('archivo')
+  }, [esArchivo, modoTexto])
+
+  /** Descarga el vídeo desde su enlace (si el servicio lo permite) y lo transcribe. */
+  async function transcribirDesdeEnlace() {
+    if (fuente?.tipo !== 'archivo') return
+    setError(null)
+    setTrabajo({ texto: 'Descargando el vídeo desde el enlace' })
+    let archivo: File
+    try {
+      const r = await fetch(fuente.url)
+      if (!r.ok) throw new Error(String(r.status))
+      archivo = new File([await r.blob()], 'video')
+    } catch {
+      setTrabajo(null)
+      setError(
+        `${NOMBRE_SERVICIO[fuente.servicio]} no deja leer el vídeo desde otra web. Pulsa «Elegir el archivo del ordenador» y selecciona el mismo vídeo.`,
+      )
+      return
+    }
+    await transcribirArchivo(archivo)
+  }
+
   async function transcribirArchivo(archivo: File) {
     setError(null)
     setTrabajo({ texto: 'Extrayendo el audio del vídeo' })
@@ -197,7 +225,10 @@ export function Crear() {
       setCantidad(cantidadSugerida(segs[segs.length - 1].fin))
       setPreguntas([])
     } catch (e) {
-      setError(`No se pudo transcribir el archivo: ${(e as Error).message}. Prueba a pegar la transcripción de YouTube.`)
+      setError(
+        `No se pudo transcribir el archivo: ${(e as Error).message}. ` +
+          (fuente?.tipo === 'archivo' ? 'Comprueba que es un vídeo MP4 o prueba con otro archivo.' : 'Prueba a pegar la transcripción de YouTube.'),
+      )
     } finally {
       setTrabajo(null)
     }
@@ -304,8 +335,8 @@ export function Crear() {
   const incompletas = preguntas.filter((p) => !p.enunciado.trim() || p.opciones.some((o) => !o.trim())).length
 
   function generarEnlace() {
-    if (!videoId) return
-    setEnlace(crearEnlace({ videoId, titulo, emailProfesor: email, preguntas }))
+    if (!fuente) return
+    setEnlace(crearEnlace({ fuente, titulo, emailProfesor: email, preguntas }))
     setCopiado(false)
   }
 
@@ -346,15 +377,15 @@ export function Crear() {
         {/* Columna derecha (arriba en móvil): el vídeo y su línea de tiempo */}
         <aside className="lg:sticky lg:top-6 lg:order-2">
           <div className="relative aspect-video overflow-hidden rounded-xl bg-tinta">
-            {videoId ? (
-              <ReproductorYouTube videoId={videoId} alEstarListo={alEstarListo} />
+            {fuente ? (
+              <Reproductor fuente={fuente} alEstarListo={alEstarListo} />
             ) : (
               <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-papel/70">
                 Aquí aparecerá el vídeo
               </p>
             )}
           </div>
-          {videoId && (
+          {fuente && (
             <div className="mt-3">
               <LineaTiempo
                 duracion={duracionTotal}
@@ -377,26 +408,34 @@ export function Crear() {
         </aside>
 
         <div className="space-y-6 lg:order-1">
-          <Paso numero={1} titulo="El vídeo" hecho={!!videoId}>
-            <label className="etiqueta" htmlFor="url">Enlace de YouTube</label>
+          <Paso numero={1} titulo="El vídeo" hecho={!!fuente}>
+            <label className="etiqueta" htmlFor="url">Enlace del vídeo</label>
             <input
               id="url"
               className="campo"
               inputMode="url"
-              placeholder="https://www.youtube.com/watch?v=..."
+              placeholder="YouTube, Google Drive, Dropbox, OneDrive o un enlace a un .mp4"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-            {url && !videoId && <p className="mt-2 text-sm text-rojo">Este enlace no parece de un vídeo de YouTube.</p>}
-            {videoId && (
+            {url && !fuente && <p className="mt-2 text-sm text-rojo">Esto no parece un enlace. Cópialo entero, empezando por https://</p>}
+            {fuente?.tipo === 'archivo' && (
+              <p className="mt-2 text-sm text-tinta-suave">
+                {fuente.servicio === 'directo' ? 'Vídeo propio (enlace directo al archivo).' : <>Vídeo propio en <strong>{NOMBRE_SERVICIO[fuente.servicio]}</strong>.</>}{' '}
+                Si no se ve a la derecha, revisa la guía de abajo.
+              </p>
+            )}
+            {!fuente && <GuiasVideoPropio />}
+            {fuente && (
               <div className="mt-4">
                 <label className="etiqueta" htmlFor="titulo">Título de la actividad</label>
                 <input id="titulo" className="campo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
               </div>
             )}
+            {fuente?.tipo === 'archivo' && <GuiasVideoPropio />}
           </Paso>
 
-          <Paso numero={2} titulo="Lo que se dice en el vídeo" hecho={segmentos.length > 0} bloqueado={!videoId}>
+          <Paso numero={2} titulo="Lo que se dice en el vídeo" hecho={segmentos.length > 0} bloqueado={!fuente}>
             {segmentos.length > 0 ? (
               <div>
                 <p className="leading-relaxed">
@@ -431,12 +470,16 @@ export function Crear() {
             ) : (
               <div>
                 <div role="tablist" className="inline-flex rounded-xl bg-papel p-1">
-                  {(
-                    [
-                      ['youtube', 'Desde YouTube'],
-                      ['pegar', 'Pegar el texto'],
-                      ['archivo', 'Subir el vídeo (MP4)'],
-                    ] as const
+                  {(esArchivo
+                    ? ([
+                        ['archivo', 'Escuchar el vídeo'],
+                        ['pegar', 'Pegar subtítulos'],
+                      ] as const)
+                    : ([
+                        ['youtube', 'Desde YouTube'],
+                        ['pegar', 'Pegar el texto'],
+                        ['archivo', 'Subir el vídeo (MP4)'],
+                      ] as const)
                   ).map(([clave, texto]) => (
                     <button
                       key={clave}
@@ -517,8 +560,9 @@ export function Crear() {
                 ) : (
                   <div className="mt-4">
                     <p className="text-sm leading-relaxed text-tinta-suave">
-                      Si el vídeo no tiene transcripción, sube el mismo vídeo (o solo su audio). La IA lo escuchará en tu navegador:
-                      el archivo no sale de tu dispositivo.
+                      {esArchivo
+                        ? 'La IA escuchará el vídeo en tu navegador y escribirá lo que se dice, con sus tiempos. Puede leerlo desde el enlace o, si no lo consigue, desde el archivo de tu ordenador.'
+                        : 'Si el vídeo no tiene transcripción, sube el mismo vídeo (o solo su audio). La IA lo escuchará en tu navegador: el archivo no sale de tu dispositivo.'}
                     </p>
                     <div className="mt-3 flex flex-wrap items-end gap-3">
                       <div>
@@ -528,8 +572,13 @@ export function Crear() {
                           <option value="english">Inglés</option>
                         </select>
                       </div>
-                      <label className={`boton boton-principal cursor-pointer ${ocupado ? 'pointer-events-none opacity-50' : ''}`}>
-                        Elegir archivo
+                      {esArchivo && (
+                        <button type="button" className="boton boton-principal" disabled={ocupado} onClick={transcribirDesdeEnlace}>
+                          Escuchar desde el enlace
+                        </button>
+                      )}
+                      <label className={`boton ${esArchivo ? 'boton-secundario' : 'boton-principal'} cursor-pointer ${ocupado ? 'pointer-events-none opacity-50' : ''}`}>
+                        {esArchivo ? 'Elegir el archivo del ordenador' : 'Elegir archivo'}
                         <input
                           type="file"
                           accept="video/*,audio/*"

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Marca } from '../components/Marca'
-import { ReproductorYouTube } from '../components/ReproductorYouTube'
+import { Reproductor } from '../components/Reproductor'
 import { LineaTiempo } from '../components/LineaTiempo'
-import { leerActividad } from '../lib/compartir'
+import { fuenteDeActividad, leerActividad } from '../lib/compartir'
 import { ESTADO_YT, type ReproductorYT } from '../lib/youtube'
 import { calcularNota, descargarPdf, enlaceCorreo, type Resultado } from '../lib/informe'
 import type { Actividad, Pregunta } from '../types'
@@ -48,12 +48,14 @@ function VerActividad({ actividad }: { actividad: Actividad }) {
   const tarjeta = useRef<HTMLDivElement>(null)
 
   const preguntas = actividad.preguntas
+  const fuente = useMemo(() => fuenteDeActividad(actividad), [actividad])
   const pendiente = useCallback(
     (hasta = Infinity) => preguntas.find((p) => respuestasRef.current[p.id] === undefined && p.tiempo <= hasta),
     [preguntas],
   )
 
   const abrir = useCallback((p: Pregunta) => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     setActiva(p)
     setElegida(null)
     setComprobada(false)
@@ -142,9 +144,9 @@ function VerActividad({ actividad }: { actividad: Actividad }) {
       {/* En móvil el formulario va debajo del vídeo (no cabe encima); desde tableta, encima del vídeo. */}
       <div className="relative mt-5">
         <div className="relative aspect-video overflow-hidden rounded-xl bg-tinta">
-          <ReproductorYouTube
-            videoId={actividad.videoId}
-            bloquearTeclado
+          <Reproductor
+            fuente={fuente}
+            modoAlumno
             alEstarListo={(r) => {
               reproductor.current = r
               setDuracion(r.getDuration() || 0)
