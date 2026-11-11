@@ -111,7 +111,7 @@ let ultimaCarga: { clave: ClaveModelo; avance: Avance } | null = null
 const CLAVE_SIN_GRAFICA = 'pausa-sin-grafica-v1'
 let usarGrafica = true
 try { usarGrafica = localStorage.getItem(CLAVE_SIN_GRAFICA) !== '1' } catch { /* sin almacenamiento */ }
-let motor: 'webgpu' | 'wasm' = 'wasm'
+let motor: 'webgpu' | 'wasm' | null = null // null = aún no se ha cargado ningún modelo en el navegador
 
 /** Sin señales de vida durante este tiempo, el modelo se da por colgado. */
 const inactividad = () => (motor === 'webgpu' ? 90_000 : 5 * 60_000)
@@ -176,7 +176,7 @@ export function graficaDescartada(): boolean {
 }
 
 /** Para mostrar al profesor con qué se está generando. */
-export function motorActual(): 'webgpu' | 'wasm' | 'nube' {
+export function motorActual(): 'webgpu' | 'wasm' | 'nube' | null {
   return enNube ? 'nube' : motor
 }
 
