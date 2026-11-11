@@ -22,9 +22,7 @@ export function Comprobar() {
   return (
     <div className="mx-auto max-w-2xl px-4 pb-16 sm:px-6">
       <header className="py-6">
-        <a href="#/">
-          <Marca />
-        </a>
+        <Marca />
       </header>
 
       <h1 className="text-3xl font-extrabold sm:text-4xl">Comprobar un informe</h1>

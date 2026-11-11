@@ -34,18 +34,24 @@ function recortar(texto: string, max: number) {
   return texto.length > max ? `${texto.slice(0, max - 1)}…` : texto
 }
 
-/** Enlace "mailto:" que abre el correo del alumno con todo ya escrito. */
-export function enlaceCorreo(r: Resultado): string {
+/**
+ * El correo del informe: destinatario, asunto y texto.
+ * `compacto` acorta cada pregunta: las aplicaciones de correo del ordenador (enlaces mailto:) fallan
+ * o cortan el texto cuando el enlace pasa de unos 2.000 caracteres.
+ */
+export function datosCorreo(r: Resultado, compacto = false) {
   const { total, aciertos, fallos, nota } = calcularNota(r)
-  const asunto = `Resultados de "${r.actividad.titulo || 'vídeo'}" - ${r.nombre}`
+  const titulo = r.actividad.titulo || 'Vídeo interactivo'
+  const asunto = `Resultados de "${recortar(titulo, 60)}" - ${r.nombre}`
   const lineas = [
     `Alumno/a: ${r.nombre}${r.grupo ? ` (${r.grupo})` : ''}`,
-    `Actividad: ${r.actividad.titulo || 'Vídeo interactivo'}`,
+    `Actividad: ${titulo}`,
     `Aciertos: ${aciertos} de ${total}  |  Fallos: ${fallos}  |  Nota: ${nota.toLocaleString('es-ES')}`,
     '',
     ...r.actividad.preguntas.map((p, i) => {
       const elegida = r.respuestas[p.id]
       const bien = elegida === p.correcta
+      if (compacto) return `${i + 1}. ${bien ? 'BIEN' : 'MAL'}`
       const respuesta = elegida === undefined ? 'sin responder' : p.opciones[elegida]
       return `${i + 1}. [${bien ? 'BIEN' : 'MAL'}] ${recortar(p.enunciado, 90)} -> ${recortar(respuesta, 50)}`
     }),
@@ -58,8 +64,39 @@ export function enlaceCorreo(r: Resultado): string {
     '',
     'Enviado desde Pausa',
   ]
-  const destino = encodeURIComponent(r.actividad.emailProfesor || '')
-  return `mailto:${destino}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(lineas.join('\n'))}`
+  return { para: r.actividad.emailProfesor || '', asunto, cuerpo: lineas.join('\n') }
+}
+
+export type ServicioCorreo = 'gmail' | 'outlook' | 'hotmail' | 'app'
+
+/** Enlace que abre el correo del alumno con todo ya escrito: Gmail o Outlook en la web, o su aplicación de correo. */
+export function enlaceCorreo(r: Resultado, servicio: ServicioCorreo = 'app'): string {
+  if (servicio === 'gmail') {
+    const { para, asunto, cuerpo } = datosCorreo(r)
+    const q = new URLSearchParams({ view: 'cm', fs: '1', to: para, su: asunto, body: cuerpo })
+    return `https://mail.google.com/mail/?${q}`
+  }
+  if (servicio === 'outlook' || servicio === 'hotmail') {
+    // outlook.office.com: cuentas de centro (Microsoft 365). outlook.live.com: Outlook.com / Hotmail personales.
+    const { para, asunto, cuerpo } = datosCorreo(r)
+    const q = new URLSearchParams({ to: para, subject: asunto, body: cuerpo })
+    return servicio === 'outlook'
+      ? `https://outlook.office.com/mail/deeplink/compose?${q}`
+      : `https://outlook.live.com/mail/0/deeplink/compose?${q}`
+  }
+  // Aplicación de correo del ordenador. La dirección va tal cual (con la @ codificada algunas aplicaciones no la reconocen).
+  const construir = (compacto: boolean) => {
+    const { para, asunto, cuerpo } = datosCorreo(r, compacto)
+    return `mailto:${para}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`
+  }
+  const completo = construir(false)
+  return completo.length <= 1900 ? completo : construir(true)
+}
+
+/** Texto completo del informe para copiarlo y pegarlo en cualquier correo o en Classroom. */
+export function textoInforme(r: Resultado): string {
+  const { para, asunto, cuerpo } = datosCorreo(r)
+  return `${para ? `Para: ${para}\n` : ''}Asunto: ${asunto}\n\n${cuerpo}`
 }
 
 export async function descargarPdf(r: Resultado) {

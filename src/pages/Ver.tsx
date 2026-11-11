@@ -4,7 +4,7 @@ import { Reproductor } from '../components/Reproductor'
 import { LineaTiempo } from '../components/LineaTiempo'
 import { fuenteDeActividad, leerActividad } from '../lib/compartir'
 import { ESTADO_YT, type ReproductorYT } from '../lib/youtube'
-import { calcularNota, descargarPdf, enlaceCorreo, lineasIntentos, type Resultado } from '../lib/informe'
+import { calcularNota, descargarPdf, enlaceCorreo, lineasIntentos, textoInforme, type Resultado } from '../lib/informe'
 import {
   borrarEnCurso, crearCodigo, estaTerminado, fechaCorta, guardarEnCurso, guardarIntento, idActividad, leerEnCurso, leerIntentos,
   type Intento,
@@ -391,6 +391,7 @@ function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string })
   const { total, aciertos, fallos, nota } = calcularNota(resultado)
   const { actividad, respuestas } = resultado
   const [copiado, setCopiado] = useState(false)
+  const [informeCopiado, setInformeCopiado] = useState(false)
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
@@ -413,16 +414,45 @@ function Informe({ resultado, aviso }: { resultado: Resultado; aviso?: string })
       <section className="mt-8 rounded-2xl border-2 border-tinta bg-hoja p-5 sm:p-6">
         <h2 className="text-lg font-bold">Envía tus resultados</h2>
         <p className="mt-1 text-sm leading-relaxed text-tinta-suave">
-          {actividad.emailProfesor
-            ? `Se abrirá tu correo con el informe ya escrito para ${actividad.emailProfesor}. Solo tienes que pulsar Enviar.`
-            : 'Se abrirá tu correo con el informe ya escrito. Añade la dirección de tu profesor o profesora y pulsa Enviar.'}
+          Elige dónde tienes tu correo. Se abrirá con el informe ya escrito
+          {actividad.emailProfesor ? ` para ${actividad.emailProfesor}: solo tienes que pulsar Enviar.` : ': añade la dirección de tu profesor o profesora y pulsa Enviar.'}
         </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <a href={enlaceCorreo(resultado)} className="boton boton-principal">
-            Enviar por correo
-          </a>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {(
+            [
+              ['gmail', 'Gmail'],
+              ['outlook', 'Outlook (cuenta del centro)'],
+              ['hotmail', 'Outlook.com o Hotmail'],
+              ['app', 'Aplicación de correo del ordenador'],
+            ] as const
+          ).map(([servicio, nombreServicio]) => (
+            <a
+              key={servicio}
+              href={enlaceCorreo(resultado, servicio)}
+              {...(servicio === 'app' ? {} : { target: '_blank', rel: 'noreferrer' })}
+              className={`boton ${servicio === 'gmail' ? 'boton-principal' : 'boton-secundario'} justify-center`}
+            >
+              {nombreServicio}
+            </a>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t-2 border-linea pt-4">
           <button type="button" className="boton boton-secundario" onClick={() => descargarPdf(resultado)}>
             Descargar en PDF
+          </button>
+          <button
+            type="button"
+            className="boton-texto"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(textoInforme(resultado))
+                setInformeCopiado(true)
+              } catch {
+                setInformeCopiado(false)
+              }
+            }}
+          >
+            {informeCopiado ? 'Copiado: pégalo en un correo o en Classroom' : 'Copiar el informe'}
           </button>
         </div>
       </section>
