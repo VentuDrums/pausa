@@ -13,12 +13,14 @@ type Props = {
   alBorrar: () => void
   alRegenerar: () => void
   alIr: () => void
+  /** Opciones de verdadero/falso en el idioma de las preguntas. */
+  etiquetasVf?: readonly [string, string]
 }
 
 const LETRAS = ['A', 'B', 'C', 'D']
 
 export function EditorPregunta({
-  numero, pregunta: p, seleccionada, regenerando, puedeRegenerar, alCambiar, alOrdenar, alBorrar, alRegenerar, alIr,
+  numero, pregunta: p, seleccionada, regenerando, puedeRegenerar, alCambiar, alOrdenar, alBorrar, alRegenerar, alIr, etiquetasVf,
 }: Props) {
   const [textoTiempo, setTextoTiempo] = useState(formatoTiempo(p.tiempo))
   useEffect(() => setTextoTiempo(formatoTiempo(p.tiempo)), [p.tiempo])
@@ -27,7 +29,7 @@ export function EditorPregunta({
     if (tipo === p.tipo) return
     alCambiar(
       tipo === 'vf'
-        ? { ...p, tipo, opciones: ['Verdadero', 'Falso'], correcta: 0 }
+        ? { ...p, tipo, opciones: [...(etiquetasVf ?? ['Verdadero', 'Falso'])], correcta: 0 }
         : { ...p, tipo, opciones: ['', '', '', ''], correcta: 0 },
     )
   }

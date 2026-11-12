@@ -288,7 +288,7 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
           {aviso && <p className="mb-4 rounded-lg bg-fosforito-claro px-3 py-2 text-sm">{aviso}</p>}
           <p className="text-sm font-bold text-tinta-suave">
             Pregunta {numeroActiva} de {preguntas.length}
-            {activa.tipo === 'vf' && ' · ¿Verdadero o falso?'}
+            {activa.tipo === 'vf' && ` · ${activa.opciones[0]} / ${activa.opciones[1]}`}
           </p>
           <h2 className="mt-2 text-xl font-bold leading-snug sm:text-2xl">{activa.enunciado}</h2>
 

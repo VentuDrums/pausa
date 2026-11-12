@@ -18,6 +18,9 @@ export async function extraerAudio(archivo: File): Promise<Float32Array> {
   }
 }
 
+/** Idioma hablado en el vídeo (nombres que entiende Whisper). */
+export type IdiomaVideo = 'spanish' | 'english' | 'catalan' | 'french'
+
 type Trozo = { timestamp: [number, number | null]; text: string }
 
 /**
@@ -26,7 +29,7 @@ type Trozo = { timestamp: [number, number | null]; text: string }
  */
 export function transcribir(
   audio: Float32Array,
-  idioma: 'spanish' | 'english',
+  idioma: IdiomaVideo,
   alAvanzar: (texto: string, proporcion?: number) => void,
 ): Promise<Segmento[]> {
   return new Promise((resolve, reject) => {

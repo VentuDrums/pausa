@@ -6,8 +6,9 @@ import { LineaTiempo } from '../components/LineaTiempo'
 import { EditorPregunta } from '../components/EditorPregunta'
 import { type ReproductorYT } from '../lib/youtube'
 import { NOMBRE_SERVICIO, leerEnlaceVideo } from '../lib/video'
+import { IDIOMAS, LISTA_IDIOMAS, esIdioma, type IdiomaPreguntas } from '../lib/idiomas'
 import { leerTranscripcion } from '../lib/transcripcion'
-import { extraerAudio, transcribir } from '../lib/whisper'
+import { extraerAudio, transcribir, type IdiomaVideo } from '../lib/whisper'
 import {
   MODELOS, NIVELES, type Nivel, cantidadSugerida, comprobarDispositivo, generarPregunta, graficaDescartada, motorActual, volverAProbarGrafica, generarPreguntas, modeloRecomendado, nubeDisponibleHoy, prepararIA,
   type ClaveModelo, type InfoDispositivo,
@@ -56,12 +57,24 @@ export function Crear() {
 
   const [modoTexto, setModoTexto] = useState<'youtube' | 'pegar' | 'archivo'>('youtube')
   const [textoPegado, setTextoPegado] = useState('')
-  const [idioma, setIdioma] = useState<'spanish' | 'english'>('spanish')
+  const [idioma, setIdioma] = useState<IdiomaVideo>('spanish')
   const [cantidad, setCantidad] = useState(() =>
     cantidadSugerida(inicial.segmentos[inicial.segmentos.length - 1]?.fin ?? 0),
   )
   const [tipos, setTipos] = useState<Record<TipoPregunta, boolean>>({ test: true, vf: true })
   // Etapa de los alumnos: la IA adapta el lenguaje y la dificultad de las preguntas. Se recuerda para la próxima vez.
+  // Idioma en el que la IA escribe las preguntas (puede ser distinto del del vídeo). Se recuerda.
+  const [idiomaPreguntas, setIdiomaPreguntas] = useState<IdiomaPreguntas>(() => {
+    try {
+      const guardado = localStorage.getItem('pausa-idioma-preguntas-v1')
+      return esIdioma(guardado) ? guardado : 'es'
+    } catch {
+      return 'es'
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('pausa-idioma-preguntas-v1', idiomaPreguntas) } catch { /* sin almacenamiento */ }
+  }, [idiomaPreguntas])
   const [nivel, setNivel] = useState<Nivel>(() => {
     try {
       const guardado = localStorage.getItem('pausa-nivel-v1')
@@ -302,6 +315,7 @@ export function Crear() {
         cantidad,
         tipos: [...tiposElegidos],
         nivel,
+        idioma: idiomaPreguntas,
         alAvanzar: (texto, proporcion) => setTrabajo({ texto, proporcion }),
         alCrear: (nueva) => setPreguntas((prev) => [...prev, nueva].sort((a, b) => a.tiempo - b.tiempo)),
         cancelado: () => cancelar.current,
@@ -328,7 +342,7 @@ export function Crear() {
       setTrabajo(null)
       // intento 1 = con algo de aleatoriedad, para que salga una pregunta distinta
       const foco = p.foco ?? Math.floor(p.fuente.length / 2)
-      const nueva = await generarPregunta(p.fuente, foco, p.tipo, Math.random() < 0.5, 1, nivel)
+      const nueva = await generarPregunta(p.fuente, foco, p.tipo, Math.random() < 0.5, 1, nivel, idiomaPreguntas)
       setPreguntas((prev) => prev.map((x) => (x.id === p.id ? nueva : x)).sort((a, b) => a.tiempo - b.tiempo))
       setSeleccionada(nueva.id)
     } catch (e) {
@@ -588,9 +602,11 @@ export function Crear() {
                     <div className="mt-3 flex flex-wrap items-end gap-3">
                       <div>
                         <label className="etiqueta" htmlFor="idioma">Idioma del vídeo</label>
-                        <select id="idioma" className="campo py-2.5" value={idioma} onChange={(e) => setIdioma(e.target.value as 'spanish' | 'english')}>
+                        <select id="idioma" className="campo py-2.5" value={idioma} onChange={(e) => setIdioma(e.target.value as IdiomaVideo)}>
                           <option value="spanish">Español</option>
                           <option value="english">Inglés</option>
+                          <option value="catalan">Catalán</option>
+                          <option value="french">Francés</option>
                         </select>
                       </div>
                       {esArchivo && (
@@ -737,6 +753,30 @@ export function Crear() {
                 </p>
               </div>
 
+              <div>
+                <p className="etiqueta" id="etiqueta-idioma-preguntas">Idioma de las preguntas</p>
+                <div role="radiogroup" aria-labelledby="etiqueta-idioma-preguntas" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {LISTA_IDIOMAS.map((l) => (
+                    <label
+                      key={l.clave}
+                      className={`cursor-pointer rounded-xl border-2 px-3 py-2.5 text-center font-bold ${idiomaPreguntas === l.clave ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}
+                    >
+                      <input
+                        type="radio"
+                        name="idioma-preguntas"
+                        className="sr-only"
+                        checked={idiomaPreguntas === l.clave}
+                        onChange={() => setIdiomaPreguntas(l.clave)}
+                      />
+                      {l.nombre}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-sm text-tinta-suave">
+                  Puede ser distinto del idioma del vídeo: por ejemplo, un vídeo en español con preguntas en inglés.
+                </p>
+              </div>
+
               <div className="flex flex-wrap gap-6">
                 <div>
                   <label className="etiqueta" htmlFor="cantidad">Número de preguntas</label>
@@ -832,6 +872,7 @@ export function Crear() {
                     alOrdenar={() => setPreguntas((prev) => [...prev].sort((a, b) => a.tiempo - b.tiempo))}
                     alBorrar={() => setPreguntas((prev) => prev.filter((x) => x.id !== p.id))}
                     alRegenerar={() => regenerar(p)}
+                    etiquetasVf={IDIOMAS[idiomaPreguntas].vf}
                     alIr={() => {
                       setSeleccionada(p.id)
                       irA(p.tiempo)

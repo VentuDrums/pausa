@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { IDIOMAS, type IdiomaPreguntas } from './idiomas'
 import type { PreguntaEditable, Segmento, TipoPregunta } from '../types'
 import { idAleatorio } from './tiempo'
 
@@ -367,9 +368,9 @@ function localizarFrase(fragmento: Segmento[], frase: unknown, correcta: string)
   return Math.min(indice + 1, fragmento.length - 1)
 }
 
-function citaDelVideo(fragmento: Segmento[], i: number): string {
+function citaDelVideo(fragmento: Segmento[], i: number, idioma: IdiomaPreguntas): string {
   const trozo = fragmento.slice(Math.max(0, i - 1), i + 1).map((s) => s.texto).join(' ')
-  return `En el vídeo se dice: «${trozo.replace(/\s+/g, ' ').trim()}».`
+  return IDIOMAS[idioma].enElVideo(trozo.replace(/\s+/g, ' ').trim())
 }
 
 function mezclar<T>(lista: T[]): T[] {
@@ -426,26 +427,62 @@ const GUIA_NIVEL: Record<Nivel, { profesor: string; reglas: string }> = {
   },
 }
 
-function instrucciones(contexto: Segmento[], foco: number, nivel: Nivel) {
+function instrucciones(contexto: Segmento[], foco: number, nivel: Nivel, idioma: IdiomaPreguntas) {
   const guia = GUIA_NIVEL[nivel]
+  const lengua = IDIOMAS[idioma].paraLaIa
   return (
     `Eres ${guia.profesor} que prepara preguntas de comprensión sobre un vídeo educativo. ` +
-    'Escribe en español correcto. Usa solo información del fragmento.\n\n' +
+    (idioma === 'es'
+      ? 'Escribe en español correcto. '
+      : `IMPORTANTE: escribe la pregunta, las cuatro respuestas y la explicación en ${lengua} correcto, ` +
+        `aunque el vídeo esté en otro idioma (tradúcelo tú). No uses el español. `) +
+    'Usa solo información del fragmento.\n\n' +
     `Fragmento del vídeo, frase a frase:\n${numerar(contexto)}\n\n` +
     `Crea una pregunta tipo test sobre el dato importante que se explica en la frase [${foco + 1}] ` +
     '(puedes usar las frases de alrededor para entenderla).\n' +
     'Responde solo con un objeto JSON con este formato:\n' +
-    `{"frase": ${foco + 1}, "pregunta": "¿...?", "correcta": "...", "incorrecta1": "...", "incorrecta2": "...", "incorrecta3": "...", "explicacion": "..."}\n` +
+    `{"frase": ${foco + 1}, "pregunta": "${idioma === 'es' ? '¿...?' : '...?'}", "correcta": "...", "incorrecta1": "...", "incorrecta2": "...", "incorrecta3": "...", "explicacion": "..."}\n` +
     '- "frase" es el NÚMERO de la frase donde termina de decirse el dato.\n' +
     '- Las tres respuestas incorrectas son distintas entre sí y ninguna es también correcta.\n' +
     `${guia.reglas}\n` +
-    '- La pregunta la lee un alumno que ha visto el vídeo: no menciones números de frase, ni "el texto" ni "el fragmento".'
+    '- La pregunta la lee un alumno que ha visto el vídeo: no menciones números de frase, ni "el texto" ni "el fragmento".' +
+    (idioma === 'es' ? '' : `\n- Recuerda: todo en ${lengua}.`)
   )
 }
 
+/** Lo mismo que hace paraElAlumno con el español, para inglés, catalán y francés. */
+function limpiarOtroIdioma(texto: string, idioma: IdiomaPreguntas): string {
+  const mayus = (m: string, t: string) => (/^[A-ZÀ-Ý]/.test(m) ? t[0].toUpperCase() + t.slice(1) : t)
+  if (idioma === 'en') {
+    return texto
+      .replace(/\b(the|this) (sentence|line)s?(?: \[?\d+\]?)?(?=\s+(says|states|explains|mentions|indicates|shows|notes)\b)/gi, (m) => mayus(m, 'the video'))
+      .replace(/\s*,?\s*\b(in|from) (sentence|line)s? \[?\d+\]?(\s*(and|to)\s*\[?\d+\]?)?/gi, '')
+      .replace(/\b(the|this) (text|passage|fragment|excerpt|transcript)\b/gi, (m) => mayus(m, 'the video'))
+  }
+  if (idioma === 'fr') {
+    return texto
+      .replace(/\b(la|cette) phrase(?: \[?\d+\]?)?(?=\s+(dit|indique|explique|mentionne|montre|affirme|précise)\b)/gi, (m) => mayus(m, 'la vidéo'))
+      .replace(/\s*,?\s*\bdans (la|les) phrases? \[?\d+\]?(\s*(et|à)\s*\[?\d+\]?)?/gi, '')
+      .replace(/\b(le|ce) (texte|fragment|passage|extrait)\b/gi, (m) => mayus(m, 'la vidéo'))
+  }
+  // Catalán
+  return texto
+    .replace(/\b(la|aquesta) frase(?: \[?\d+\]?)?(?=\s+(diu|indica|explica|esmenta|mostra|afirma)\b)/gi, (m) => mayus(m, 'el vídeo'))
+    .replace(/\s*,?\s*\ba (la|les) frases? \[?\d+\]?(\s*(i|a)\s*\[?\d+\]?)?/gi, '')
+    .replace(/\b(el|aquest) (text|fragment)\b/gi, (m) => mayus(m, 'el vídeo'))
+}
+
 /** Quita referencias a cómo se le dio el texto al modelo ("en la frase 7", "según el fragmento"...). */
-function paraElAlumno(texto: string): string {
+function paraElAlumno(texto: string, idioma: IdiomaPreguntas = 'es'): string {
   const mayus = (m: string, t: string) => (/^[A-ZÁÉÍÓÚ]/.test(m) ? t[0].toUpperCase() + t.slice(1) : t)
+  if (idioma !== 'es') {
+    return limpiarOtroIdioma(texto, idioma)
+      .replace(/\s*\(\s*(frase|sentence|phrase|line) \[?\d+\]?\s*\)/gi, '')
+      .replace(/\s+([.,;:])/g, '$1')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .replace(/^([a-zà-ÿ])/, (l: string) => l.toUpperCase())
+  }
   return texto
     // "La frase 5 indica…" → "El vídeo indica…"
     .replace(/\b(la|esta) frases?(?: \[?\d+\]?)?(?=\s+(indica|menciona|dice|señala|explica|afirma|muestra|habla|cuenta)\b)/gi, (m) =>
@@ -469,9 +506,15 @@ function paraElAlumno(texto: string): string {
 
 type Borrador = { indice: number; pregunta: string; correcta: string; incorrectas: string[]; explicacion: string }
 
-async function borradorTest(contexto: Segmento[], foco: number, aleatorio: boolean, nivel: Nivel): Promise<Borrador> {
-  const datos = leerJson(await completar(instrucciones(contexto, foco, nivel), aleatorio))
-  const pregunta = paraElAlumno(String(datos.pregunta ?? ''))
+async function borradorTest(
+  contexto: Segmento[],
+  foco: number,
+  aleatorio: boolean,
+  nivel: Nivel,
+  idioma: IdiomaPreguntas,
+): Promise<Borrador> {
+  const datos = leerJson(await completar(instrucciones(contexto, foco, nivel, idioma), aleatorio))
+  const pregunta = paraElAlumno(String(datos.pregunta ?? ''), idioma)
   // Las opciones siempre empiezan en mayúscula ("la reconquista" → "La reconquista").
   const opcion = (x: unknown) => {
     const t = String(x ?? '').trim()
@@ -490,28 +533,28 @@ async function borradorTest(contexto: Segmento[], foco: number, aleatorio: boole
   if (!pregunta || !correcta || incorrectas.length < 2) throw new Error('Pregunta incompleta')
   // Nunca antes de la frase elegida: la pregunta no puede llegar antes de que se diga el dato
   const indice = Math.max(localizarFrase(contexto, datos.frase, correcta), Math.min(foco + 1, contexto.length - 1))
-  const explicacion = paraElAlumno(String(datos.explicacion ?? ''))
+  const explicacion = paraElAlumno(String(datos.explicacion ?? ''), idioma)
   return {
     indice,
     pregunta,
     correcta,
     incorrectas,
-    explicacion: explicacion.length > 15 ? explicacion : citaDelVideo(contexto, Math.max(foco, 0) + 1),
+    explicacion: explicacion.length > 15 ? explicacion : citaDelVideo(contexto, Math.max(foco, 0) + 1, idioma),
   }
 }
 
 /** Convierte "pregunta + respuesta" en una afirmación. Así sabemos con certeza si es verdadera o falsa. */
-async function afirmacion(pregunta: string, respuesta: string): Promise<string> {
+async function afirmacion(pregunta: string, respuesta: string, idioma: IdiomaPreguntas): Promise<string> {
   const texto = await completar(
     // El nivel ya se nota en la pregunta de la que sale. (Si se le añade aquí, el modelo lo copia en la frase.)
-    'Convierte esta pregunta y su respuesta en una sola frase afirmativa, en español, sin añadir nada más.\n' +
+    `Convierte esta pregunta y su respuesta en una sola frase afirmativa, en ${IDIOMAS[idioma].paraLaIa}, sin añadir nada más.\n` +
       `Pregunta: ${pregunta}\nRespuesta: ${respuesta}\nFrase afirmativa:`,
     false,
     80,
   )
   const frase = texto.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim().split('\n')[0].replace(/^["«]|["»]$/g, '').trim()
   if (!frase || frase.length < 8) throw new Error('Afirmación vacía')
-  return paraElAlumno(frase)
+  return paraElAlumno(frase, idioma)
 }
 
 /**
@@ -525,8 +568,9 @@ export async function generarPregunta(
   verdadera: boolean,
   intento = 0,
   nivel: Nivel = 'eso',
+  idioma: IdiomaPreguntas = 'es',
 ): Promise<PreguntaEditable> {
-  const b = await borradorTest(contexto, foco, intento > 0, nivel)
+  const b = await borradorTest(contexto, foco, intento > 0, nivel, idioma)
   const tiempo = contexto[b.indice].fin + 1
   const base = { id: idAleatorio(), tiempo, fuente: contexto, foco }
 
@@ -535,14 +579,14 @@ export async function generarPregunta(
     return { ...base, tipo: 'test', enunciado: b.pregunta, opciones, correcta: opciones.indexOf(b.correcta), explicacion: b.explicacion }
   }
 
-  const enunciado = await afirmacion(b.pregunta, verdadera ? b.correcta : b.incorrectas[0])
+  const enunciado = await afirmacion(b.pregunta, verdadera ? b.correcta : b.incorrectas[0], idioma)
   return {
     ...base,
     tipo: 'vf',
     enunciado,
-    opciones: ['Verdadero', 'Falso'],
+    opciones: [...IDIOMAS[idioma].vf],
     correcta: verdadera ? 0 : 1,
-    explicacion: `La respuesta correcta a «${b.pregunta}» es: ${b.correcta}. ${b.explicacion}`,
+    explicacion: `${IDIOMAS[idioma].respuestaCorrecta(b.pregunta, b.correcta)} ${b.explicacion}`,
   }
 }
 
@@ -632,6 +676,7 @@ type OpcionesGeneracion = {
   cantidad: number
   tipos: TipoPregunta[]
   nivel: Nivel
+  idioma: IdiomaPreguntas
   alAvanzar: (texto: string, proporcion?: number) => void
   alCrear: (p: PreguntaEditable) => void
   cancelado: () => boolean
@@ -641,7 +686,7 @@ type OpcionesGeneracion = {
  * Crea exactamente `cantidad` preguntas (si el vídeo da para ello), colocadas donde se explican los datos
  * más importantes y repartidas por el vídeo. Si un dato no da para una buena pregunta, pasa al siguiente.
  */
-export async function generarPreguntas({ segmentos, cantidad, tipos, nivel, alAvanzar, alCrear, cancelado }: OpcionesGeneracion) {
+export async function generarPreguntas({ segmentos, cantidad, tipos, nivel, idioma, alAvanzar, alCrear, cancelado }: OpcionesGeneracion) {
   const candidatos = await analizarTranscripcion(
     segmentos,
     (hecho, total) => alAvanzar(`Leyendo el vídeo para encontrar los datos importantes (${hecho} de ${total})`, (hecho / total) * 0.3),
@@ -686,7 +731,7 @@ export async function generarPreguntas({ segmentos, cantidad, tipos, nivel, alAv
     let conseguida = false
     for (let intento = 0; intento < 2 && !cancelado() && !conseguida; intento++) {
       try {
-        const p = await generarPregunta(contexto, foco, tipo, Math.random() < 0.5, intento, nivel)
+        const p = await generarPregunta(contexto, foco, tipo, Math.random() < 0.5, intento, nivel, idioma)
         elegidos.push(candidato.indice)
         creadas++
         alCrear(p)
