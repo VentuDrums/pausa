@@ -1,0 +1,37 @@
+Pausa
+Copyright (c) 2026 Carlos Ventura. Todos los derechos reservados.
+
+El código de Pausa es público para que cualquier persona (por ejemplo, un
+centro educativo o su Delegado de Protección de Datos) pueda revisar qué hace
+la aplicación y comprobar cómo trata los datos. Que sea público no significa
+que sea libre.
+
+SE PERMITE:
+  - Leer y revisar el código.
+  - Usar la aplicación publicada en https://ventudrums.github.io/pausa/
+    para crear y hacer actividades.
+
+NO SE PERMITE, sin permiso escrito del autor:
+  - Copiar, modificar o redistribuir el código, completo o en parte.
+  - Publicar o alojar la aplicación, o una versión derivada de ella, en
+    cualquier otra dirección o plataforma.
+  - Usar el código, el diseño o el nombre «Pausa» en otros productos o
+    servicios, gratuitos o de pago.
+
+Para pedir permiso o cualquier consulta, abre una incidencia en
+https://github.com/VentuDrums/pausa/issues
+
+Las condiciones de GitHub permiten a sus usuarios ver este repositorio y
+crear una copia (fork) dentro de GitHub; esa copia no da ningún otro derecho
+de los indicados arriba.
+
+---
+
+English summary: Copyright (c) 2026 Carlos Ventura. All rights reserved.
+The source code is published for transparency and review only. You may read
+it and use the hosted app at https://ventudrums.github.io/pausa/. Copying,
+modifying, redistributing, hosting or reusing this code, design or the name
+"Pausa" requires the author's prior written permission.
+
+Las bibliotecas de terceros que usa Pausa conservan sus propias licencias.
+Third-party libraries used by Pausa keep their own licenses.

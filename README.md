@@ -61,3 +61,7 @@ npx wrangler deploy
 
 WebLLM se descartó: en gráficas NVIDIA serie 50 (Blackwell) producía texto sin sentido. ONNX Runtime Web
 (transformers.js) funciona bien en el mismo equipo.
+
+## Licencia
+
+© 2026 Carlos Ventura. Todos los derechos reservados. El código es público para que se pueda revisar, no para reutilizarlo: consulta [LICENSE](LICENSE).

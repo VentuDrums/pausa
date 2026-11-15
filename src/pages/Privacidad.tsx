@@ -147,7 +147,7 @@ export function Privacidad() {
 
       <Seccion titulo="Responsabilidad y contacto">
         <p>
-          Pausa es un proyecto personal, gratuito y de código abierto. Cuando un profesor la usa con su alumnado, es él (y su centro) quien
+          Pausa es un proyecto personal y gratuito, con el código a la vista para que cualquiera pueda revisar qué hace. Cuando un profesor la usa con su alumnado, es él (y su centro) quien
           decide usarla y quien recibe los informes, así que debe seguir las normas de protección de datos de su centro y de su
           administración educativa.
         </p>
