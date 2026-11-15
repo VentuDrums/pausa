@@ -399,11 +399,14 @@ export function Crear() {
     <div className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
       <header className="flex items-center justify-between py-6">
         <Marca />
-        {(url || preguntas.length > 0) && (
-          <button type="button" onClick={empezarDeNuevo} className="boton-texto" disabled={ocupado}>
-            Empezar de nuevo
-          </button>
-        )}
+        <nav className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1">
+          <a href="#/privacidad" target="_blank" rel="noreferrer" className="boton-texto">Privacidad</a>
+          {(url || preguntas.length > 0) && (
+            <button type="button" onClick={empezarDeNuevo} className="boton-texto" disabled={ocupado}>
+              Empezar de nuevo
+            </button>
+          )}
+        </nav>
       </header>
 
       <h1 className="text-3xl font-extrabold sm:text-4xl">Crear una actividad</h1>
@@ -643,6 +646,7 @@ export function Crear() {
                   </span>
                   <span className="mt-0.5 block text-sm text-tinta-suave">
                     Un modelo grande (Qwen3 30B) en los servidores de Cloudflare. Sin descargas, preguntas mejores y en segundos.
+                    Solo se envía el texto del vídeo, nunca datos de alumnos.
                   </span>
                 </label>
                 <label className={`cursor-pointer rounded-xl border-2 p-3 ${!enNube ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}>

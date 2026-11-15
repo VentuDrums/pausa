@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Inicio } from './pages/Inicio'
 import { Ver } from './pages/Ver'
 import { Comprobar } from './pages/Comprobar'
+import { Privacidad } from './pages/Privacidad'
 
 // La parte del profesor incluye las librerías de IA (varios MB): se carga solo cuando se necesita,
 // así el enlace de los alumnos abre rápido incluso con mala conexión.
@@ -24,6 +25,7 @@ export default function App() {
   const ruta = useRuta()
   if (ruta.startsWith('#/ver/')) return <Ver codigo={ruta.slice('#/ver/'.length)} />
   if (ruta.startsWith('#/comprobar')) return <Comprobar />
+  if (ruta.startsWith('#/privacidad')) return <Privacidad />
   if (ruta.startsWith('#/crear')) {
     return (
       <Suspense fallback={<p className="p-8 text-tinta-suave">Cargando…</p>}>

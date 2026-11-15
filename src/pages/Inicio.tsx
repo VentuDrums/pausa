@@ -1,7 +1,7 @@
 import { Marca } from '../components/Marca'
 
 const PASOS = [
-  { titulo: 'Pega un vídeo de YouTube', texto: 'Cualquier vídeo público: una explicación, un documental, una clase grabada.' },
+  { titulo: 'Pega el enlace de un vídeo', texto: 'De YouTube o tuyo, guardado en Drive, Dropbox u OneDrive: una explicación, un documental, una clase grabada.' },
   { titulo: 'La IA prepara las preguntas', texto: 'Escucha el vídeo y coloca cada pregunta justo después de que se explique el dato.' },
   { titulo: 'Revisa y comparte el enlace', texto: 'Cambia lo que quieras y envía el enlace. Tus alumnos no instalan nada.' },
 ]
@@ -20,6 +20,7 @@ export function Inicio() {
       <header className="flex items-center justify-between py-6">
         <Marca />
         <nav className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1">
+          <a href="#/privacidad" className="boton-texto">Privacidad</a>
           <a href="#/comprobar" className="boton-texto">Comprobar un informe</a>
           <a href="#/crear" className="boton-texto">Crear una actividad</a>
         </nav>
@@ -33,8 +34,8 @@ export function Inicio() {
             El alumno responde.
           </h1>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-tinta-suave">
-            Pausa convierte un vídeo de YouTube en una actividad interactiva. La inteligencia artificial
-            funciona dentro de tu navegador: es gratis y no envía nada a ningún servidor.
+            Pausa convierte un vídeo en una actividad interactiva. La inteligencia artificial prepara las preguntas
+            y tú las revisas. Es gratis y no guarda datos de tus alumnos.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a href="#/crear" className="boton boton-principal text-lg">Crear una actividad</a>

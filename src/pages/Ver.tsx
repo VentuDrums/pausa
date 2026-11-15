@@ -470,7 +470,11 @@ function VerActividad({ actividad, id }: { actividad: Actividad; id: string }) {
               <input id="nombre" className="campo py-2.5" autoComplete="name" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
               <label className="etiqueta mt-3" htmlFor="grupo">Curso y grupo <span className="font-normal text-tinta-suave">(opcional)</span></label>
               <input id="grupo" className="campo py-2.5" placeholder="Ej.: 1º ESO B" value={grupo} onChange={(e) => setGrupo(e.target.value)} />
-              <button type="submit" className="boton boton-principal mt-5 w-full" disabled={!nombre.trim() || !listo}>
+              <p className="mt-3 text-xs leading-relaxed text-tinta-suave">
+                No escribas otros datos personales. Tu nombre y tus respuestas se quedan en este navegador hasta que envíes el informe.{' '}
+                <a href="#/privacidad" target="_blank" rel="noreferrer" className="underline">Privacidad</a>
+              </p>
+              <button type="submit" className="boton boton-principal mt-4 w-full" disabled={!nombre.trim() || !listo}>
                 {listo ? 'Empezar el vídeo' : 'Cargando el vídeo…'}
               </button>
             </form>
