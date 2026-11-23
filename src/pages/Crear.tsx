@@ -664,7 +664,7 @@ export function Crear() {
                     <span className="ml-2 rounded bg-fosforito-claro px-1.5 py-0.5 text-xs">Recomendado</span>
                   </span>
                   <span className="mt-0.5 block text-sm text-tinta-suave">
-                    Un modelo grande (Qwen3 30B) en los servidores de Cloudflare. Sin descargas, preguntas mejores y en segundos.
+                    Un modelo grande (Gemma 4 26B, de Google) en los servidores de Cloudflare. Sin descargas, preguntas mejores y en segundos.
                     Solo se envía el texto del vídeo, nunca datos de alumnos.
                   </span>
                 </label>

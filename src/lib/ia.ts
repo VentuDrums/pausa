@@ -186,7 +186,7 @@ export function motorActual(): 'webgpu' | 'wasm' | 'nube' | null {
 // Si lo que pasa es que deja de responder (TIEMPO_AGOTADO) con la gráfica, pasamos al procesador.
 const GRAFICA_PERDIDA = /device.{0,3}is lost|device lost|mapAsync|DXGI_ERROR|GPUDevice|TIEMPO_AGOTADO/i
 
-/* ---------- IA en la nube (Cloudflare Workers AI, Qwen3 30B) ---------- */
+/* ---------- IA en la nube (Cloudflare Workers AI, Gemma 4 26B) ---------- */
 
 // Intermediario publicado desde la carpeta `servidor/`. Usa el cupo gratuito diario de Cloudflare,
 // compartido por todos los profesores; si se agota o falla, Pausa sigue con el modelo del navegador.

@@ -1,7 +1,7 @@
 /**
  * Intermediario de Pausa en Cloudflare Workers.
  *
- * Recibe el texto que Pausa quiere que la IA complete, se lo pasa a Qwen3 30B (Workers AI, con la cuota
+ * Recibe el texto que Pausa quiere que la IA complete, se lo pasa a Gemma 4 26B (Workers AI, con la cuota
  * gratuita de la cuenta) y devuelve la respuesta. No hay claves: el Worker usa la IA de su propia cuenta.
  *
  * Protecciones para que nadie gaste la cuota desde fuera:
@@ -11,9 +11,13 @@
 
 export interface Env {
   AI: Ai
+  /** Solo para pruebas en local (`wrangler dev --var MODELO:...`). */
+  MODELO?: string
 }
 
-const MODELO = '@cf/qwen/qwen3-30b-a3b-fp8'
+// Qwen3 30B se retiró de Workers AI el 20-11-2026. Gemma 4 26B A4B: también activa solo una parte del
+// modelo en cada palabra, gasta poca cuota y Cloudflare no guarda los datos (zero data retention).
+const MODELO = '@cf/google/gemma-4-26b-a4b-it'
 
 const ORIGENES = new Set([
   'https://ventudrums.github.io',
@@ -106,9 +110,10 @@ export default {
     const aleatorio = datos.aleatorio === true
 
     try {
-      const salida = await env.AI.run(MODELO as any, {
-        // "/no_think" desactiva el razonamiento de Qwen3: así responde directo y gasta mucha menos cuota.
-        messages: [{ role: 'user', content: `${texto}\n/no_think` }],
+      const salida = await env.AI.run((env.MODELO || MODELO) as any, {
+        messages: [{ role: 'user', content: texto }],
+        // Sin razonamiento: responde directo y gasta mucha menos cuota.
+        chat_template_kwargs: { enable_thinking: false },
         max_tokens: maxTokens,
         temperature: aleatorio ? 0.7 : 0.2,
         top_p: 0.8,

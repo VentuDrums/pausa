@@ -86,7 +86,7 @@ export function Privacidad() {
             <strong>En tu navegador:</strong> el modelo se descarga en tu ordenador y la transcripción del vídeo no sale de él.
           </li>
           <li>
-            <strong>En la nube:</strong> el texto del vídeo se envía a Cloudflare Workers AI para que el modelo Qwen3 proponga las
+            <strong>En la nube:</strong> el texto del vídeo se envía a Cloudflare Workers AI para que el modelo Gemma 4 proponga las
             preguntas. Solo se envía ese texto, nunca datos de alumnos. Pausa tiene desactivados los registros de esas peticiones, y
             Cloudflare no usa este contenido para entrenar sus modelos.
           </li>
