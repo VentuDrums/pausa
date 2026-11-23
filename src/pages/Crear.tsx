@@ -94,7 +94,11 @@ export function Crear() {
     try { return localStorage.getItem(CLAVE_DONDE) !== 'local' } catch { return true }
   })
   const [modelo, setModelo] = useState<ClaveModelo>(() => leerAnalisisGuardado()?.recomendado ?? 'equilibrado')
-  const marcador = useRef<HTMLAnchorElement>(null)
+  // Primer paso: de dónde viene el vídeo. No se guarda en ningún sitio: cada vez empieza por YouTube.
+  const [ruta, setRuta] = useState<'youtube' | 'propio'>(() => (leerEnlaceVideo(inicial.url)?.tipo === 'archivo' ? 'propio' : 'youtube'))
+  const [pegarEnlaceYT, setPegarEnlaceYT] = useState(false)
+  const avisoMarcador = () =>
+    setError('Este botón no se pulsa aquí: arrástralo a tu barra de marcadores y úsalo cuando estés viendo un vídeo en YouTube.')
 
   const [trabajo, setTrabajo] = useState<Trabajo>(null)
   const [regenerando, setRegenerando] = useState<string | null>(null)
@@ -123,11 +127,6 @@ export function Crear() {
       if (!leerAnalisisGuardado()) setModelo(modeloRecomendado(info))
     })
   }, [])
-
-  // React no permite enlaces "javascript:" en sus propiedades, así que el código del marcador se pone a mano.
-  useEffect(() => {
-    marcador.current?.setAttribute('href', codigoMarcador())
-  })
 
   // Datos que llegan desde YouTube con el botón «Enviar a Pausa» (#/crear?importar=...)
   useEffect(() => {
@@ -447,23 +446,69 @@ export function Crear() {
 
         <div className="space-y-6 lg:order-1">
           <Paso numero={1} titulo="El vídeo" hecho={!!fuente}>
-            <label className="etiqueta" htmlFor="url">Enlace del vídeo</label>
-            <input
-              id="url"
-              className="campo"
-              inputMode="url"
-              placeholder="YouTube, Google Drive, Dropbox, OneDrive o un enlace a un .mp4"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            {url && !fuente && <p className="mt-2 text-sm text-rojo">Esto no parece un enlace. Cópialo entero, empezando por https://</p>}
+            {!fuente && (
+              <div role="radiogroup" aria-label="¿De dónde es el vídeo?" className="mb-5 grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    ['youtube', 'Un vídeo de YouTube', 'Llega con su transcripción, en dos clics'],
+                    ['propio', 'Un vídeo propio', 'Google Drive, Dropbox, OneDrive o un .mp4'],
+                  ] as const
+                ).map(([clave, nombre, detalle]) => (
+                  <label
+                    key={clave}
+                    className={`cursor-pointer rounded-xl border-2 p-3 ${ruta === clave ? 'border-boli bg-boli/5' : 'border-linea bg-hoja'}`}
+                  >
+                    <input type="radio" name="ruta" className="sr-only" checked={ruta === clave} onChange={() => setRuta(clave)} />
+                    <span className="block font-bold">{nombre}</span>
+                    <span className="mt-0.5 block text-sm text-tinta-suave">{detalle}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {!fuente && ruta === 'youtube' && (
+              <>
+                <PasosMarcador alPulsar={avisoMarcador} />
+                {!pegarEnlaceYT && (
+                  <button type="button" className="boton-texto mt-4" onClick={() => setPegarEnlaceYT(true)}>
+                    ¿Estás en una tableta o prefieres pegar el enlace?
+                  </button>
+                )}
+              </>
+            )}
+
+            {(fuente || ruta === 'propio' || pegarEnlaceYT) && (
+              <div className={!fuente && ruta === 'youtube' ? 'mt-5 border-t-2 border-linea pt-4' : ''}>
+                <label className="etiqueta" htmlFor="url">Enlace del vídeo</label>
+                <input
+                  id="url"
+                  className="campo"
+                  inputMode="url"
+                  placeholder={
+                    !fuente && ruta === 'youtube'
+                      ? 'https://www.youtube.com/watch?v=…'
+                      : !fuente
+                        ? 'Google Drive, Dropbox, OneDrive o un enlace a un .mp4'
+                        : 'YouTube, Google Drive, Dropbox, OneDrive o un enlace a un .mp4'
+                  }
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+                {url && !fuente && <p className="mt-2 text-sm text-rojo">Esto no parece un enlace. Cópialo entero, empezando por https://</p>}
+                {!fuente && ruta === 'youtube' && (
+                  <p className="mt-2 text-sm text-tinta-suave">
+                    Así el vídeo llega sin su texto: en el paso 2 tendrás que pegar la transcripción o subir el vídeo.
+                  </p>
+                )}
+              </div>
+            )}
             {fuente?.tipo === 'archivo' && (
               <p className="mt-2 text-sm text-tinta-suave">
                 {fuente.servicio === 'directo' ? 'Vídeo propio (enlace directo al archivo).' : <>Vídeo propio en <strong>{NOMBRE_SERVICIO[fuente.servicio]}</strong>.</>}{' '}
                 Si no se ve a la derecha, revisa la guía de abajo.
               </p>
             )}
-            {!fuente && <GuiasVideoPropio />}
+            {!fuente && ruta === 'propio' && <GuiasVideoPropio />}
             {fuente && (
               <div className="mt-4">
                 <label className="etiqueta" htmlFor="titulo">Título de la actividad</label>
@@ -538,35 +583,9 @@ export function Crear() {
                       YouTube no deja que otras webs lean sus transcripciones, pero este botón trabaja desde la propia página de
                       YouTube y te trae el vídeo con todo su texto.
                     </p>
-                    <ol className="mt-4 space-y-4">
-                      <li className="flex gap-3">
-                        <span className="trazo-fosforito h-fit px-2 font-display font-bold">1</span>
-                        <div>
-                          <p className="font-bold">Arrastra este botón a tu barra de marcadores</p>
-                          <p className="text-sm text-tinta-suave">Solo la primera vez. Si no ves la barra, pulsa Ctrl + Mayús + B.</p>
-                          <a
-                            ref={marcador}
-                            draggable
-                            onClick={(e) => {
-                              e.preventDefault()
-                              setError('Este botón no se pulsa aquí: arrástralo a tu barra de marcadores y úsalo cuando estés viendo un vídeo en YouTube.')
-                            }}
-                            className="mt-2 inline-flex cursor-grab items-center gap-2 rounded-xl border-2 border-dashed border-tinta bg-fosforito px-4 py-2 font-bold text-tinta active:cursor-grabbing"
-                          >
-                            <span aria-hidden="true">⏸</span> Enviar a Pausa
-                          </a>
-                        </div>
-                      </li>
-                      <li className="flex gap-3">
-                        <span className="trazo-fosforito h-fit px-2 font-display font-bold">2</span>
-                        <div>
-                          <p className="font-bold">Abre el vídeo en YouTube y pulsa el marcador «Enviar a Pausa»</p>
-                          <p className="text-sm text-tinta-suave">
-                            Pausa se abrirá en una pestaña nueva con el vídeo y su transcripción ya cargados.
-                          </p>
-                        </div>
-                      </li>
-                    </ol>
+                    <div className="mt-4">
+                      <PasosMarcador alPulsar={avisoMarcador} />
+                    </div>
                   </div>
                 ) : modoTexto === 'pegar' ? (
                   <div className="mt-4">
@@ -1021,6 +1040,49 @@ function Paso({
         {children}
       </div>
     </section>
+  )
+}
+
+/** Las dos instrucciones del botón «Enviar a Pausa». No guarda nada: es solo un enlace que se arrastra. */
+function PasosMarcador({ alPulsar }: { alPulsar: () => void }) {
+  const marcador = useRef<HTMLAnchorElement>(null)
+  // React no permite enlaces "javascript:" en sus propiedades, así que el código del marcador se pone a mano.
+  useEffect(() => {
+    marcador.current?.setAttribute('href', codigoMarcador())
+  }, [])
+  return (
+    <ol className="space-y-4">
+      <li className="flex gap-3">
+        <span className="trazo-fosforito h-fit px-2 font-display font-bold">1</span>
+        <div>
+          <p className="font-bold">Arrastra este botón a tu barra de marcadores</p>
+          <p className="text-sm text-tinta-suave">
+            Solo la primera vez: si ya lo tienes, salta al paso 2. Si no ves la barra, pulsa Ctrl + Mayús + B.
+          </p>
+          <a
+            ref={marcador}
+            draggable
+            onClick={(e) => {
+              e.preventDefault()
+              alPulsar()
+            }}
+            className="mt-2 inline-flex cursor-grab items-center gap-2 rounded-xl border-2 border-dashed border-tinta bg-fosforito px-4 py-2 font-bold text-tinta active:cursor-grabbing"
+          >
+            <span aria-hidden="true">⏸</span> Enviar a Pausa
+          </a>
+        </div>
+      </li>
+      <li className="flex gap-3">
+        <span className="trazo-fosforito h-fit px-2 font-display font-bold">2</span>
+        <div>
+          <p className="font-bold">Abre el vídeo en YouTube y pulsa el marcador «Enviar a Pausa»</p>
+          <p className="text-sm text-tinta-suave">
+            Pausa se abrirá en una pestaña nueva con el vídeo y su transcripción ya cargados. El botón solo copia el título y la
+            transcripción del vídeo que estás viendo, y no pasa por ningún servidor: no lee nada de tu cuenta.
+          </p>
+        </div>
+      </li>
+    </ol>
   )
 }
 
